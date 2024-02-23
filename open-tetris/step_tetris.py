@@ -1,40 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# Very simple tetris implementation
-#
-# Control keys:
-#       Down - Drop stone faster
-# Left/Right - Move stone
-#         Up - Rotate Stone clockwise
-#     Escape - Quit game
-#     Return - Instant drop
-#
-# Have fun!
-
-# NOTE: If you're looking for the old python2 version, see
-#       <https://gist.github.com/silvasur/565419/45a3ded61b993d1dd195a8a8688e7dc196b08de8>
-
-# Copyright (c) 2010 "Laria Carolin Chabowski"<me@laria.me>
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
 from random import randrange as rand
 import pygame, sys
 import numpy as np
@@ -60,9 +26,9 @@ colors = [
 
 # Define the shapes of the single parts
 tetris_shapes = [
-    [[0, 0, 0], 
+    [[0, 1, 0], 
      [1, 1, 1], 
-     [0, 1, 0]],
+     [0, 0, 0]],
 
     [[0, 2, 2], 
      [2, 2, 0], 
@@ -92,11 +58,7 @@ tetris_shapes = [
 
 def rotate_clockwise(shape):
     shape = np.rot90(shape).tolist()
-
-    # TODO: Check edge oclussions
-
     return shape
-
 
 def check_collision(board, shape, offset):
     off_x, off_y = offset
@@ -130,12 +92,14 @@ def trim(matrix):
 
 def join_matrixes(mat1, mat2, mat2_off):
 
+    left_shift, right_shift, up_shift, down_shift = getShifts(mat2)
     mat2 = trim(mat2)
+    
     off_x, off_y = mat2_off
     for cy, row in enumerate(mat2):
         for cx, val in enumerate(row):
             try:
-                mat1[cy + off_y - 1][cx + off_x] += val
+                mat1[cy + off_y + up_shift][cx + off_x + left_shift] += val #TODO: Check this
             except IndexError:
                 pass
     return mat1
@@ -143,9 +107,27 @@ def join_matrixes(mat1, mat2, mat2_off):
 
 def new_board():
     board = [[0 for x in range(cols)] for y in range(rows)]
-    board += [[1 for x in range(cols)]]
+    #board += [[1 for x in range(cols)]]
     return board
 
+def getShifts(shape):
+    # Find columns where all elements are 0
+    all_zeros = np.all(np.array(shape) == 0, axis=0)
+
+    # Find the first column where not all elements are 0
+    left_shift = np.argmax(all_zeros == False)
+    # Find the first from the right column where not all elements are 0
+    right_shift = np.argmax(all_zeros[::-1] == False)
+
+    # Find rows where all elements are 0
+    all_zeros = np.all(np.array(shape) == 0, axis=1)
+
+    # Find the first row where not all elements are 0
+    up_shift = np.argmax(all_zeros == False)
+    # Find the first from the bottom row where not all elements are 0
+    down_shift = np.argmax(all_zeros[::-1] == False)
+
+    return left_shift, right_shift, up_shift, down_shift 
 
 class TetrisApp(object):
     def __init__(self):
@@ -248,12 +230,7 @@ class TetrisApp(object):
     def move(self, delta_x):
         if not self.gameover:
 
-            # Find columns where all elements are 0
-            all_zeros = np.all(np.array(self.stone) == 0, axis=0)
-
-            # Find the first column where not all elements are 0
-            left_shift = np.argmax(all_zeros == False)
-            right_shift = np.argmax(all_zeros[::-1] == False)
+            left_shift, right_shift, up_shift, down_shift = getShifts(self.stone)
 
             new_x = self.stone_x + delta_x
             if new_x < -left_shift:
@@ -271,16 +248,17 @@ class TetrisApp(object):
 
     def drop(self):
         if not self.gameover:
-            # self.score += 1
+            self.score += 1
             self.stone_y += 1
             if check_collision(self.board, self.stone, (self.stone_x, self.stone_y)):
+                self.stone_y -= 1
                 self.board = join_matrixes(
                     self.board, self.stone, (self.stone_x, self.stone_y)
                 )
                 self.new_stone()
                 cleared_rows = 0
                 while True:
-                    for i, row in enumerate(self.board[:-1]):
+                    for i, row in enumerate(self.board):
                         if 0 not in row:
                             self.board = remove_row(self.board, i)
                             cleared_rows += 1
@@ -299,6 +277,19 @@ class TetrisApp(object):
     def rotate_stone(self):
         if not self.gameover:
             new_stone = rotate_clockwise(self.stone)
+
+            # Find columns where all elements are 0
+            all_zeros = np.all(np.array(new_stone) == 0, axis=0)
+
+            # Find the first column where not all elements are 0
+            left_shift = np.argmax(all_zeros == False)
+            right_shift = np.argmax(all_zeros[::-1] == False)
+
+            if self.stone_x < -left_shift:
+                self.stone_x = -left_shift
+            if self.stone_x > cols - len(self.stone[0]) + right_shift:
+                self.stone_x = cols - len(self.stone[0]) + right_shift
+
             if not check_collision(self.board, new_stone, (self.stone_x, self.stone_y)):
                 self.stone = new_stone
 
@@ -348,10 +339,17 @@ class TetrisApp(object):
 
         self.update_board()
 
+        # Get piece identifier
         piece = np.array(self.stone).max()
+
+        # Remove last row of 1
+        #sterile_board = self.board[:-1]
+
+        # Convert to 1s and 2s
         sterile_board = np.where(np.array(self.board) != 0, 1, 0).tolist()
         sterile_stone = np.where(np.array(self.stone) != 0, 2, 0).tolist()
 
+        # Add converted stone to board
         sterile_board = join_matrixes(sterile_board, sterile_stone, (self.stone_x, self.stone_y))
 
         return sterile_board, piece, self.score, self.gameover
