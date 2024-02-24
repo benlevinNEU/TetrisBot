@@ -17,6 +17,12 @@ To run step_tetris run the following command:
 python ./open-tetris/step_tetris.py
 ```
 
+To run the tetris training run the following command:
+```bash
+python ./open-tetris/ai.py
+```
+Make sure to push new generations to git when you are done training. If you want to leave your computer running, you can push at any time because the networks are saved continuously.
+
 To run the fake ai tetris visualizer run the following command:
 ```bash
 python ./open-tetris/fake-ai.py -n <number of games>
