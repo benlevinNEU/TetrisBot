@@ -2,6 +2,7 @@ from multiprocessing import Process
 import random
 import numpy as np
 import time
+import sys
 from step_tetris import TetrisApp  # Adjust import as needed
 
 def game_controller(id, window_pos, cell_size, rows, cols):
@@ -57,5 +58,17 @@ def start_game(id, active_processes, width, height, cell_size, rows, cols):
     active_processes[id] = p  # Add to active processes
 
 if __name__ == "__main__":
-    num_games = 100  # Number of game instances you want to run
+    default_num_games = 50  # Default number of games
+    
+    # Check if the correct argument is provided
+    if len(sys.argv) >= 2 and sys.argv[1] == "-n":
+        try:
+            num_games = int(sys.argv[2])
+        except (IndexError, ValueError):
+            print("Invalid number of games. Using default.")
+            num_games = default_num_games
+    else:
+        print(f"No input provided. Using default number of games: {default_num_games}")
+        num_games = default_num_games
+    
     manage_games(num_games)
