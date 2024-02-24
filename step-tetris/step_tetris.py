@@ -160,6 +160,8 @@ class TetrisApp(object):
         self.next_stone = tetris_shapes[rand(len(tetris_shapes))]
 
         self.gameover = False
+        self.moves_wo_drop = 0
+        self.max_moves_wo_drop = cols * 2
         self.init_game()
 
     def remove_row(self, board, row):
@@ -237,7 +239,8 @@ class TetrisApp(object):
                             file.write("New error: \n" + prnt + '\n\n')
 
     def add_cl_lines(self, n):
-        linescores = [0, 40, 100, 300, 1200]
+        #linescores = [0, 40, 100, 300, 1200]
+        linescores = [0, 200, 500, 1500, 6000] # TODO: increase reward for lines temporarily
         self.lines += n
         self.score += linescores[n] * self.level
         if self.lines >= self.level * 6:
@@ -265,9 +268,9 @@ class TetrisApp(object):
         if self.gui: pygame.display.update()
         sys.exit()
 
-    def drop(self):
+    def drop(self, manual):
         if not self.gameover:
-            self.score += 1
+            self.score += 1 if manual else 0
             self.stone_y += 1
             if check_collision(self.board, self.stone, (self.stone_x, self.stone_y)):
                 self.stone_y -= 1
@@ -347,15 +350,20 @@ class TetrisApp(object):
 
     def ai_command(self, command):
         key_actions = {
-            0: self.drop,
+            0: lambda: self.drop(True),
             1: lambda: self.move(-1),
             2: lambda: self.move(+1),
             3: self.rotate_stone,
         }
 
-        self.gameover = False
+        if command != 0:
+            self.moves_wo_drop += 1
 
-        if command in key_actions:
+        if self.moves_wo_drop >= self.max_moves_wo_drop:
+            self.moves_wo_drop = 0
+            self.drop(False)
+
+        elif command in key_actions:
             key_actions[command]()
 
         if self.gui:

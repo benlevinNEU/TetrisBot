@@ -104,17 +104,17 @@ def evaluate_network(args):
             # Accumulate the score over multiple games
             total_score += score
 
-            print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}", index)
+            print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
 
     results_list.append((index, total_score))
 
 def print_to_line(lock, string, line):
     with lock:
-        sys.stdout.write('\n' * line)
-        sys.stdout.flush()  # Ensure '\n' * line is processed
+        sys.stdout.write(f'\033[{line}B') # Move cursor dow
+        sys.stdout.flush()
         sys.stdout.write(string)
         sys.stdout.flush()  # Ensure 'string' is processed
-        sys.stdout.write('\033[F' * line)  # Move cursor up
+        sys.stdout.write(f'\033[{line+1}A')  # Move cursor up
         sys.stdout.flush()  # Ensure cursor move is processed
 
 def evaluate_population(population, plays, game_params):
@@ -304,8 +304,9 @@ if __name__ == "__main__":
         save_networks([(population[index], score) for index, score in top_performers], generation)
 
         # Print generation info
-        print(f"\n"*population_size)
-        print(f"Generation {generation}: Top Score = {top_performers[0][1]}")
+        sys.stdout.write(f'\033[{population_size+1}B')
+        sys.stdout.flush()
+        print(f"Generation {generation}: Top Score = {top_performers[0][1]}\n\n\n\n\n")
 
         # Extract the networks of the top performers
         top_networks = [population[index] for index, _ in top_performers]
