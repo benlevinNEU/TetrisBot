@@ -2,15 +2,27 @@
 # -*- coding: utf-8 -*-
 
 from random import randrange as rand
-import pygame, sys
 import numpy as np
-import sys
+import sys, os
+
+class SuppressOutput:
+    def __enter__(self):
+        self._original_stdout = sys.stdout  # Save a reference to the original standard output
+        sys.stdout = open(os.devnull, 'w')  # Redirect standard output to /dev/null
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout.close()  # Close the file handle
+        sys.stdout = self._original_stdout  # Restore the original standard output
+
+# Usage
+with SuppressOutput():
+    import pygame
 
 # The configuration
-cell_size = 18
-cols = 10
-rows = 22
-maxfps = 30
+CELL_SIZE = 18
+COLS = 10
+ROWS = 22
+maxfps = 144
 
 colors = [
     (0, 0, 0),
@@ -55,7 +67,6 @@ tetris_shapes = [
      [7, 7]],
 ]
 
-
 def rotate_clockwise(shape):
     shape = np.rot90(shape).tolist()
     return shape
@@ -70,11 +81,6 @@ def check_collision(board, shape, offset):
             except IndexError:
                 return True
     return False
-
-
-def remove_row(board, row):
-    del board[row]
-    return [[0 for i in range(cols)]] + board
 
 def trim(matrix):
 
@@ -104,12 +110,6 @@ def join_matrixes(mat1, mat2, mat2_off):
                 pass
     return mat1
 
-
-def new_board():
-    board = [[0 for x in range(cols)] for y in range(rows)]
-    #board += [[1 for x in range(cols)]]
-    return board
-
 def getShifts(shape):
     # Find columns where all elements are 0
     all_zeros = np.all(np.array(shape) == 0, axis=0)
@@ -130,9 +130,16 @@ def getShifts(shape):
     return left_shift, right_shift, up_shift, down_shift 
 
 class TetrisApp(object):
-    def __init__(self):
+    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, window_pos=(0, 0)):
+        os.environ['SDL_VIDEO_WINDOW_POS'] = '{},{}'.format(window_pos[0], window_pos[1])  # Set window position to '0
         pygame.init()
         pygame.key.set_repeat(250, 25)
+        self.gui = gui
+        self.cell_size = cell_size
+        self.cols = cols
+        self.rows = rows
+
+
         self.width = cell_size * (cols + 6)
         self.height = cell_size * rows
         self.rlim = cell_size * cols
@@ -152,17 +159,25 @@ class TetrisApp(object):
         self.gameover = False
         self.init_game()
 
+    def remove_row(self, board, row):
+        del board[row]
+        return [[0 for i in range(self.cols)]] + board
+    
+    def new_board(self):
+        board = [[0 for x in range(self.cols)] for y in range(self.rows)]
+        return board
+
     def new_stone(self):
         self.stone = self.next_stone[:]
         self.next_stone = tetris_shapes[rand(len(tetris_shapes))]
-        self.stone_x = int(cols / 2 - len(self.stone[0]) / 2)
+        self.stone_x = int(self.cols / 2 - len(self.stone[0]) / 2)
         self.stone_y = 0
 
         if check_collision(self.board, self.stone, (self.stone_x, self.stone_y)):
             self.gameover = True
 
     def init_game(self):
-        self.board = new_board()
+        self.board = self.new_board()
         self.new_stone()
         self.level = 1
         self.score = 0
@@ -201,21 +216,23 @@ class TetrisApp(object):
         for y, row in enumerate(matrix):
             for x, val in enumerate(row):
 
-                if val > 8: # TODO: For debugging purposes
-                    pass
-
                 if val:
-                    pygame.draw.rect(
-                        self.screen,
-                        colors[val],
-                        pygame.Rect(
-                            (off_x + x) * cell_size,
-                            (off_y + y) * cell_size,
-                            cell_size,
-                            cell_size,
-                        ),
-                        0,
-                    )
+                    try:
+                        pygame.draw.rect(
+                            self.screen,
+                            colors[val],
+                            pygame.Rect(
+                                (off_x + x) * self.cell_size,
+                                (off_y + y) * self.cell_size,
+                                self.cell_size,
+                                self.cell_size,
+                            ),
+                            0,
+                        )
+                    except IndexError: # TODO: Fix know bug that causes this
+                        with open('./error-log/log.txt', 'a') as file:
+                            prnt = "\n".join(map(str, matrix))
+                            file.write("New error: \n" + prnt + '\n\n')
 
     def add_cl_lines(self, n):
         linescores = [0, 40, 100, 300, 1200]
@@ -235,8 +252,8 @@ class TetrisApp(object):
             new_x = self.stone_x + delta_x
             if new_x < -left_shift:
                 new_x = -left_shift
-            if new_x > cols - len(self.stone[0]) + right_shift:
-                new_x = cols - len(self.stone[0]) + right_shift
+            if new_x > self.cols - len(self.stone[0]) + right_shift:
+                new_x = self.cols - len(self.stone[0]) + right_shift
 
             if not check_collision(self.board, self.stone, (new_x, self.stone_y)):
                 self.stone_x = new_x
@@ -260,7 +277,7 @@ class TetrisApp(object):
                 while True:
                     for i, row in enumerate(self.board):
                         if 0 not in row:
-                            self.board = remove_row(self.board, i)
+                            self.board = self.remove_row(self.board, i)
                             cleared_rows += 1
                             break
                     else:
@@ -278,6 +295,8 @@ class TetrisApp(object):
         if not self.gameover:
             new_stone = rotate_clockwise(self.stone)
 
+            # Sometimes doesn't rotate correctly if block 1 is against the wall on the left
+
             # Find columns where all elements are 0
             all_zeros = np.all(np.array(new_stone) == 0, axis=0)
 
@@ -287,8 +306,8 @@ class TetrisApp(object):
 
             if self.stone_x < -left_shift:
                 self.stone_x = -left_shift
-            if self.stone_x > cols - len(self.stone[0]) + right_shift:
-                self.stone_x = cols - len(self.stone[0]) + right_shift
+            if self.stone_x > self.cols - len(self.stone[0]) + right_shift:
+                self.stone_x = self.cols - len(self.stone[0]) + right_shift
 
             if not check_collision(self.board, new_stone, (self.stone_x, self.stone_y)):
                 self.stone = new_stone
@@ -311,16 +330,16 @@ class TetrisApp(object):
                 (self.rlim + 1, 0),
                 (self.rlim + 1, self.height - 1),
             )
-            self.disp_msg("Next:", (self.rlim + cell_size, 2))
+            self.disp_msg("Next:", (self.rlim + self.cell_size, 2))
             self.disp_msg(
                 "Score: %d\n\nLevel: %d\nLines: %d"
                 % (self.score, self.level, self.lines),
-                (self.rlim + cell_size, cell_size * 5),
+                (self.rlim + self.cell_size, self.cell_size * 5),
             )
             self.draw_matrix(self.bground_grid, (0, 0))
             self.draw_matrix(self.board, (0, 0))
             self.draw_matrix(self.stone, (self.stone_x, self.stone_y))
-            self.draw_matrix(self.next_stone, (cols + 1, 2))
+            self.draw_matrix(self.next_stone, (self.cols + 1, 2))
 
         pygame.display.update()
 
@@ -364,7 +383,7 @@ if __name__ == "__main__":
 
     App.update_board()
 
-    print("\n"*rows)
+    print("\n"*ROWS)
 
     while not App.gameover:
         for event in pygame.event.get():
