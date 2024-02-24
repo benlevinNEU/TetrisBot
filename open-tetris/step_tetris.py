@@ -131,9 +131,12 @@ def getShifts(shape):
 
 class TetrisApp(object):
     def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, window_pos=(0, 0)):
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '{},{}'.format(window_pos[0], window_pos[1])  # Set window position to '0
-        pygame.init()
-        pygame.key.set_repeat(250, 25)
+        self.gui = gui
+
+        if gui:
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '{},{}'.format(window_pos[0], window_pos[1])  # Set window position to '0
+            pygame.init()
+            pygame.key.set_repeat(250, 25)
         self.gui = gui
         self.cell_size = cell_size
         self.cols = cols
@@ -147,10 +150,10 @@ class TetrisApp(object):
             [8 if x % 2 == y % 2 else 0 for x in range(cols)] for y in range(rows)
         ]
 
-        self.default_font = pygame.font.Font(pygame.font.get_default_font(), 12)
-
-        self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.event.set_blocked(pygame.MOUSEMOTION)  # We do not need
+        if gui:
+            self.default_font = pygame.font.Font(pygame.font.get_default_font(), 12)
+            self.screen = pygame.display.set_mode((self.width, self.height))
+            pygame.event.set_blocked(pygame.MOUSEMOTION)
         # mouse movement
         # events, so we
         # block them.
@@ -182,7 +185,6 @@ class TetrisApp(object):
         self.level = 1
         self.score = 0
         self.lines = 0
-        # pygame.time.set_timer(pygame.USEREVENT+1, 1000)
 
     def disp_msg(self, msg, topleft):
         x, y = topleft
@@ -242,7 +244,7 @@ class TetrisApp(object):
             self.level += 1
             newdelay = 1000 - 50 * (self.level - 1)
             newdelay = 100 if newdelay < 100 else newdelay
-            pygame.time.set_timer(pygame.USEREVENT + 1, newdelay)
+            #pygame.time.set_timer(pygame.USEREVENT + 1, newdelay)
 
     def move(self, delta_x):
         if not self.gameover:
@@ -260,7 +262,7 @@ class TetrisApp(object):
 
     def quit(self):
         self.center_msg("Exiting...")
-        pygame.display.update()
+        if self.gui: pygame.display.update()
         sys.exit()
 
     def drop(self):
@@ -356,7 +358,8 @@ class TetrisApp(object):
         if command in key_actions:
             key_actions[command]()
 
-        self.update_board()
+        if self.gui:
+            self.update_board()
 
         # Get piece identifier
         piece = np.array(self.stone).max()
