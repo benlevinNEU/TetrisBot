@@ -126,7 +126,7 @@ def evaluate_network(args):
     if profile:
         profiler.disable()
         t = int(time.time())
-        profiler.dump_stats(f"./step-tetris/profiler/{profile[1]}/proc{t}.prof")
+        profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{t}.prof")
 
     results_list.append((index, total_score))
 
