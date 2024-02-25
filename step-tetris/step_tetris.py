@@ -4,6 +4,15 @@
 from random import randrange as rand
 import numpy as np
 import sys, os
+import cProfile
+import pstats
+
+# Add the parent directory to sys.path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+import utils
 
 class SuppressOutput:
     def __enter__(self):
@@ -83,17 +92,17 @@ def check_collision(board, shape, offset):
     return False
 
 def trim(matrix):
-
     matrix = np.array(matrix)
-
-    while np.all(matrix[0] == 0):
-        matrix = matrix[1:]
-    while np.all(matrix[-1] == 0):
-        matrix = matrix[:-1]
-    while np.all(matrix[:, 0] == 0):
-        matrix = matrix[:, 1:]
-    while np.all(matrix[:, -1] == 0):
-        matrix = matrix[:, :-1]
+    
+    # Find the indices where the trimming should stop
+    row_nonzero = np.where(matrix.any(axis=1))[0]
+    col_nonzero = np.where(matrix.any(axis=0))[0]
+    
+    if row_nonzero.size > 0:
+        matrix = matrix[row_nonzero[0]:row_nonzero[-1]+1, :]
+    if col_nonzero.size > 0:
+        matrix = matrix[:, col_nonzero[0]:col_nonzero[-1]+1]
+        
     return matrix.tolist()
 
 def join_matrixes(mat1, mat2, mat2_off):
@@ -111,23 +120,19 @@ def join_matrixes(mat1, mat2, mat2_off):
     return mat1
 
 def getShifts(shape):
-    # Find columns where all elements are 0
-    all_zeros = np.all(np.array(shape) == 0, axis=0)
-
-    # Find the first column where not all elements are 0
-    left_shift = np.argmax(all_zeros == False)
-    # Find the first from the right column where not all elements are 0
-    right_shift = np.argmax(all_zeros[::-1] == False)
-
-    # Find rows where all elements are 0
-    all_zeros = np.all(np.array(shape) == 0, axis=1)
-
-    # Find the first row where not all elements are 0
-    up_shift = np.argmax(all_zeros == False)
-    # Find the first from the bottom row where not all elements are 0
-    down_shift = np.argmax(all_zeros[::-1] == False)
-
-    return left_shift, right_shift, up_shift, down_shift 
+    shape_array = np.array(shape)
+    
+    # Identifying non-zero rows and columns
+    non_zero_cols = np.any(shape_array != 0, axis=0)
+    non_zero_rows = np.any(shape_array != 0, axis=1)
+    
+    # Calculating shifts
+    left_shift = np.argmax(non_zero_cols)
+    right_shift = len(non_zero_cols) - np.argmax(non_zero_cols[::-1])
+    up_shift = np.argmax(non_zero_rows)
+    down_shift = len(non_zero_rows) - np.argmax(non_zero_rows[::-1])
+    
+    return left_shift, right_shift, up_shift, down_shift
 
 class TetrisApp(object):
     def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, window_pos=(0, 0)):
@@ -234,7 +239,7 @@ class TetrisApp(object):
                             0,
                         )
                     except IndexError: # TODO: Fix know bug that causes this
-                        with open('./error-log/log.txt', 'a') as file:
+                        with open('./step-tetris/error-log/log.txt', 'a') as file:
                             prnt = "\n".join(map(str, matrix))
                             file.write("New error: \n" + prnt + '\n\n')
 
@@ -390,6 +395,10 @@ def print_board(board):
         print(row)
 
 if __name__ == "__main__":
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+
     App = TetrisApp()
 
     App.update_board()
@@ -412,3 +421,9 @@ if __name__ == "__main__":
 
                 print_board(board)
 
+    profiler.disable()
+    #stats = pstats.Stats(profiler).sort_stats('cumulative')
+    profiler.dump_stats("./step-tetris/profile_data.prof")
+    stats_file = "./step-tetris/profile_data.prof"
+    directory = './step-tetris/'
+    utils.filter_methods(stats_file, directory)

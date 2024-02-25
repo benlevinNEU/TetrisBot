@@ -4,12 +4,25 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 import os, sys, re, copy, time
 from step_tetris import TetrisApp, COLS, ROWS
-from heapq import nlargest
 import multiprocessing
 from multiprocessing import Process, Lock
 
+from pynput import keyboard
+from pynput.keyboard import Key
+
+import cProfile
+import pstats
+
+# Add the parent directory to sys.path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+import utils
+
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() # TODO: Add -1 if you don't want to use all cores
+PROF_DIR = "./step-tetris/profiler/"
 
 class TetrisNet(nn.Module):
     def __init__(self, input_size, hidden_layers, output_size):
@@ -59,7 +72,11 @@ def evaluate_network(args):
         int: The final score achieved by the network.
     """
 
-    index, network, plays, gp, lock, results_list, slot = args
+    index, network, plays, gp, lock, results_list, slot, profile = args
+
+    if profile[0]:
+        profiler = cProfile.Profile()
+        profiler.enable()
 
     with torch.no_grad():  # Ensure no gradients are computed during evaluation
         network.eval()  # Set the network to evaluation mode
@@ -104,20 +121,16 @@ def evaluate_network(args):
             # Accumulate the score over multiple games
             total_score += score
 
-            print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
+            utils.print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
+
+    if profile:
+        profiler.disable()
+        t = int(time.time())
+        profiler.dump_stats(f"./step-tetris/profiler/{profile[1]}/proc{t}.prof")
 
     results_list.append((index, total_score))
 
-def print_to_line(lock, string, line):
-    with lock:
-        sys.stdout.write(f'\033[{line}B') # Move cursor dow
-        sys.stdout.flush()
-        sys.stdout.write(string)
-        sys.stdout.flush()  # Ensure 'string' is processed
-        sys.stdout.write(f'\033[{line+1}A')  # Move cursor up
-        sys.stdout.flush()  # Ensure cursor move is processed
-
-def evaluate_population(population, plays, game_params):
+def evaluate_population(population, plays, game_params, profile=(False, 0)):
     manager = multiprocessing.Manager()
     lock = manager.Lock()
     results_list = manager.list()  # Managed list for collecting results
@@ -140,10 +153,10 @@ def evaluate_population(population, plays, game_params):
                 if len(processes) < MAX_WORKERS:
                     break
                 # Avoid tight loop with a short sleep
-                time.sleep(0.1)
+                time.sleep(0.01)
 
         # Start a new process
-        args = (i, net, plays, game_params, lock, results_list, slot)
+        args = (i, net, plays, game_params, lock, results_list, slot, profile)
         p = multiprocessing.Process(target=evaluate_network, args=(args,))
         p.start()
         processes.append((p, slot))
@@ -155,51 +168,6 @@ def evaluate_population(population, plays, game_params):
     # Convert the manager list to a regular list for further processing
     results = list(results_list)
     return results
-
-def save_networks(population_score, generation_number):
-    # Create a directory for the current generation
-    generation_dir = f'networks/generation_{generation_number}'
-    os.makedirs(generation_dir, exist_ok=True)
-
-    networks = [ps[0] for ps in population_score]
-    scores = [ps[1] for ps in population_score]
-    
-    # Save each network in the population
-    for index, (network, score) in enumerate(zip(networks, scores)):
-        filename = os.path.join(generation_dir, f'network_{score}.pth')
-        torch.save(network.state_dict(), filename)
-
-def find_top_networks(networks_dir, M):
-    """
-    Find the M networks with the highest scores.
-
-    Args:
-        networks_dir (str): Path to the directory containing generation subdirectories.
-        M (int): Number of top networks to find.
-
-    Returns:
-        list of tuples: List of tuples containing the score and file path of the top M networks.
-    """
-    # Compile a regular expression to extract the score from the filenames
-    filename_pattern = re.compile(r'network_(\d+\.?\d*)\.pth')
-
-    # Initialize a list to keep track of the top networks
-    top_networks = []
-
-    # Walk through the networks directory and its subdirectories
-    for root, dirs, files in os.walk(networks_dir):
-        for file in files:
-            match = filename_pattern.match(file)
-            if match:
-                # Extract the score from the filename
-                score = float(match.group(1))
-                # Append the score and the file path to the top_networks list
-                top_networks.append((score, os.path.join(root, file)))
-
-    # Find the M highest scores and their corresponding file paths
-    top_M_networks = nlargest(M, top_networks, key=lambda x: x[0])
-
-    return top_M_networks
 
 def load_network(filepath, input_size, hidden_layers, output_size, device='cpu'):
     """
@@ -230,29 +198,16 @@ def mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_
 
         return next_generation
 
-def get_newest_generation_number(networks_dir):
-    # Compile a regex pattern to match the generation directories and capture their numeric values
-    generation_pattern = re.compile(r'generation_(\d+)')
-    
-    # Get all items in the networks directory
-    all_items = os.listdir(networks_dir)
-    
-    # Filter out directories that match the generation pattern
-    generation_dirs = [item for item in all_items if os.path.isdir(os.path.join(networks_dir, item)) and generation_pattern.match(item)]
-    
-    # Extract the generation numbers from the directory names
-    generation_numbers = [int(generation_pattern.search(dir_name).group(1)) for dir_name in generation_dirs]
-    
-    # Find the maximum generation number
-    if generation_numbers:
-        newest_generation = max(generation_numbers)
-    else:
-        # Return a default value or raise an error if no generation directories are found
-        newest_generation = None  # Or consider raising an error/exception
-    
-    return newest_generation
-
 if __name__ == "__main__":
+
+    profile = True
+    tid = int(time.time())
+
+    if profile: os.makedirs(f"{PROF_DIR}{tid}")
+
+    if profile:
+        profiler = cProfile.Profile()
+        profiler.enable()
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     multiprocessing.set_start_method('spawn')
@@ -260,7 +215,7 @@ if __name__ == "__main__":
     # Parameters for the evolutionary process
     population_size = 100
     top_n = 10
-    generations = 400
+    generations = 420
     plays = 3  # Number of games to play for each network each generation
 
     input_size = COLS * ROWS + 1
@@ -276,9 +231,11 @@ if __name__ == "__main__":
         "window_pos": (0, 0)
     }
 
-    networks_dir = "./networks"
+    print("Starting Evolutionary Training\n\n\n\n\n")
+
+    networks_dir = "./step-tetris/networks"
     M = 5  # Number of top networks to load
-    top_networks_info = find_top_networks(networks_dir, M)
+    top_networks_info = utils.find_top_networks(networks_dir, M)
     
     if len(top_networks_info) == 0:
         # Initialize population with custom initialization
@@ -287,13 +244,26 @@ if __name__ == "__main__":
             net.apply(apply_custom_initialization)
     else:
         # Load the top M networks from the file
-        top_networks = [load_network(path, input_size, hidden_layers, output_size, device) for _, path in top_networks_info]
+        top_networks = [utils.load_network(path, input_size, hidden_layers, output_size, device) for _, path in top_networks_info]
         population = mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.1)
+
+    exit = False
+
+    def on_press(key):
+        # Check if the pressed key is ESC
+        if key == Key.esc:
+            global exit
+            exit = True
+            return False
+
+    # Set up the listener
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
         
-    for generation in range(get_newest_generation_number(networks_dir) + 1, generations):
+    for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
 
         # Evaluate all networks in parallel
-        results = evaluate_population(population, plays, game_params)
+        results = evaluate_population(population, plays, game_params, (profile, tid))
 
         # Convert results to a list and sort by the score
         results = sorted(results, key=lambda x: x[1], reverse=True)  # Now sorting the list of results
@@ -301,7 +271,7 @@ if __name__ == "__main__":
         # Select top performers
         top_performers = results[:top_n]
 
-        save_networks([(population[index], score) for index, score in top_performers], generation)
+        utils.save_networks(networks_dir, [(population[index], score) for index, score in top_performers], generation)
 
         # Print generation info
         sys.stdout.write(f'\033[{population_size+1}B')
@@ -313,4 +283,18 @@ if __name__ == "__main__":
 
         population = mutate_next_gen(top_networks, population_size, mutation_rate=0.05, mutation_strength=0.2)
 
+        # Listen for escape key and break the loop if pressed
+        if exit:
+            break
+
     print("Finished Evolutionary Training")
+
+    if profile:
+        profiler.disable()
+        profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
+
+        profiler_dir = f"{PROF_DIR}{tid}"
+        directory = './step-tetris'
+
+        p = utils.merge_profile_stats(profiler_dir)
+        utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime').print_stats()
