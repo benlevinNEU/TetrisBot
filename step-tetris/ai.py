@@ -11,7 +11,6 @@ from pynput import keyboard
 from pynput.keyboard import Key
 
 import cProfile
-import pstats
 
 # Add the parent directory to sys.path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +18,7 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 import utils
+from get_latest_profiler_data import print_stats
 
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() # TODO: Add -1 if you don't want to use all cores
@@ -231,7 +231,7 @@ if __name__ == "__main__":
         "window_pos": (0, 0)
     }
 
-    print("Starting Evolutionary Training\n\n\n\n\n")
+    print("Starting Evolutionary Training\n\n\n\n\n\n\n")
 
     networks_dir = "./step-tetris/networks"
     M = 5  # Number of top networks to load
@@ -297,4 +297,5 @@ if __name__ == "__main__":
         directory = './step-tetris'
 
         p = utils.merge_profile_stats(profiler_dir)
-        utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime').print_stats()
+        print_stats(utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime'))
+        print_stats(p.strip_dirs().sort_stats('tottime'), 30)

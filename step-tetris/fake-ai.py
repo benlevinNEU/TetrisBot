@@ -15,8 +15,8 @@ if parent_dir not in sys.path:
 
 import utils
 
-def game_controller(id, window_pos, cell_size, rows, cols):
-    app = TetrisApp(gui=False, cell_size=cell_size, cols=cols, rows=rows, window_pos=window_pos)
+def game_controller(id, gui, window_pos, cell_size, rows, cols):
+    app = TetrisApp(gui=gui, cell_size=cell_size, cols=cols, rows=rows, window_pos=window_pos)
     while True:
         command = random.randint(0, 3)
         board, piece, score, gameover = app.ai_command(command)
@@ -24,7 +24,7 @@ def game_controller(id, window_pos, cell_size, rows, cols):
             print(f"Process {id} - Game Over! Final score: {score}")
             break
 
-def manage_games(num_games):
+def manage_games(num_games, gui):
     active_processes = {}
     completed_ids = set()
 
@@ -37,7 +37,7 @@ def manage_games(num_games):
     max_games_on_screen = int(2560 / width) * int(1440 / height)
 
     for i in range(min(num_games, max_games_on_screen)):
-        start_game(i, active_processes, width, height, cell_size, rows, cols)
+        start_game(i, active_processes, gui, width, height, cell_size, rows, cols)
 
     games_to_start = num_games - max_games_on_screen
 
@@ -61,14 +61,14 @@ def manage_games(num_games):
 
             break
 
-        time.sleep(1)  # Check every second
+        time.sleep(0.1)
 
-def start_game(id, active_processes, width, height, cell_size, rows, cols):
+def start_game(id, active_processes, gui, width, height, cell_size, rows, cols):
 
     window_pos = ((width * id) % 2560, height * int(id / int(2560 / width)))
 
     # Create and start a new game process
-    p = Process(target=game_controller, args=(id, window_pos, cell_size, rows, cols))
+    p = Process(target=game_controller, args=(id, gui, window_pos, cell_size, rows, cols))
     p.start()
     active_processes[id] = p  # Add to active processes
 
@@ -76,6 +76,7 @@ if __name__ == "__main__":
     default_num_games = 50  # Default number of games
 
     profile = True
+    gui = False
 
     if profile:
         profiler = cProfile.Profile()
@@ -92,7 +93,7 @@ if __name__ == "__main__":
         print(f"No input provided. Using default number of games: {default_num_games}")
         num_games = default_num_games
     
-    manage_games(num_games)
+    manage_games(num_games, gui)
 
     print('End of main process')
 

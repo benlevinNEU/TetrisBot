@@ -84,11 +84,14 @@ def check_collision(board, shape, offset):
     off_x, off_y = offset
     for cy, row in enumerate(shape):
         for cx, cell in enumerate(row):
-            try:
-                if cell != 0 and board[cy + off_y][cx + off_x]:
+            if cell != 0:
+                # Check if the current position is within the bounds of the board
+                if 0 <= cy + off_y < len(board) and 0 <= cx + off_x < len(board[0]):
+                    if board[cy + off_y][cx + off_x]:
+                        return True
+                else:
+                    # If out of bounds, it's a collision
                     return True
-            except IndexError:
-                return True
     return False
 
 def trim(matrix):
@@ -376,9 +379,6 @@ class TetrisApp(object):
 
         # Get piece identifier
         piece = np.array(self.stone).max()
-
-        # Remove last row of 1
-        #sterile_board = self.board[:-1]
 
         # Convert to 1s and 2s
         sterile_board = np.where(np.array(self.board) != 0, 1, 0).tolist()
