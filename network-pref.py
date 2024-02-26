@@ -3,7 +3,7 @@ import re
 import matplotlib.pyplot as plt
 import numpy as np
 
-networks_dir = './step-tetris/networks'
+networks_dir = './frame-tetris/networks'
 generation_pattern = re.compile(r'generation_(\d+)')
 score_pattern = re.compile(r'network_(\d+)\.pth')
 

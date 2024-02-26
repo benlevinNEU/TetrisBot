@@ -69,7 +69,7 @@ class TetrisApp(object):
 
         # Add buffer to bottom of board to avoid index errors
         buffer = np.ones((BUFFER_SIZE, board.shape[1]), dtype=int)
-        board = np.vstack((board, buffer))
+        board = np.vstack((buffer, board, buffer))
         return board
 
     def new_stone(self):
@@ -88,9 +88,9 @@ class TetrisApp(object):
 
         # Drop stone until slice touches top layer of blocks        
         non_zero_rows = np.all(self.board == 0, axis=1)
-        top_row = len(non_zero_rows) - np.argmax(non_zero_rows[::-1])
+        top_row = len(non_zero_rows) - np.argmax(non_zero_rows[::-1]) - BUFFER_SIZE
 
-        self.stone_offset = top_row - self.stone_slice.shape[0]# if top_row - len(self.stone) > 0 else 0 # TODO: Make sure this is correct
+        self.stone_offset = top_row - self.stone_slice.shape[0]
         self.score += self.stone_offset
 
         if not self.is_valid_state(self.stone_slice, self.stone_offset):
@@ -173,12 +173,12 @@ class TetrisApp(object):
 
             if not self.is_valid_state(self.stone_slice, self.stone_offset):
                 self.stone_offset -= 1
-                self.board[self.stone_offset:self.stone_offset+self.stone_slice.shape[0], :] += self.stone_slice
+                self.board[BUFFER_SIZE+self.stone_offset:BUFFER_SIZE+self.stone_offset+self.stone_slice.shape[0], :] += self.stone_slice
                 cleared_rows = 0
                 while True:
-                    for i, row in enumerate(self.board[:-BUFFER_SIZE]):
+                    for i, row in enumerate(self.board[BUFFER_SIZE:-BUFFER_SIZE]):
                         if 0 not in row:
-                            self.board = self.remove_row(self.board, i)
+                            self.board[BUFFER_SIZE:-BUFFER_SIZE] = self.remove_row(self.board[BUFFER_SIZE:-BUFFER_SIZE], i)
                             cleared_rows += 1
                             break
                     else:
@@ -215,7 +215,7 @@ class TetrisApp(object):
             )
             self.draw_matrix(self.bground_grid, (0, 0))
             self.draw_matrix(self.stone_slice.tolist(), (0, self.stone_offset))
-            self.draw_matrix(self.board.tolist(), (0, 0))
+            self.draw_matrix(self.board[BUFFER_SIZE:-BUFFER_SIZE].tolist(), (0, 0))
             self.draw_matrix(self.next_stone, (self.cols + 1, 2))
 
         pygame.display.update()
@@ -230,7 +230,13 @@ class TetrisApp(object):
         board[board != 0] = 1
         stone[stone != 0] = 1
 
-        board[offset:offset+stone.shape[0]] += stone
+        try:
+            board[offset+BUFFER_SIZE:offset+BUFFER_SIZE+stone.shape[0]] += stone
+        except ValueError:
+            print("Stone: ", stone)
+            print("Offset: ", offset)
+            print("Board: ", board)
+            return False
 
         if np.any(board > 1):
             return False
@@ -251,32 +257,43 @@ class TetrisApp(object):
             state = stone_states[i]
 
             if np.all(state == 0): # Occurs when state index is invalid for stone
+                self.states[i] = (False, state, self.stone_offset)
                 continue
 
-            # Determine if this position is real or if just confirming final pos
-            y = self.stone_offset
-            real = self.is_valid_state(state, y)
+            real = self.is_valid_state(state, self.stone_offset)
 
             # Determine if this possition is reachable from current state
             reachable = False
             if real:
-                reachable = self.is_reachable_state(state, y)
+                reachable = self.is_reachable_state(state, self.stone_offset)
 
-            self.states[i] = (reachable, state, y)
+            self.states[i] = (reachable, state, self.stone_offset)
     
         keys = np.array(list(self.states.keys()))
         values = np.array([v[0] for v in self.states.values()])
 
         # Create an array with zeros
-        mask = np.zeros(keys.max() + 1, dtype=int)
+        mask = np.zeros(4*COLS, dtype=int)
 
         # Set positions to 1 based on condition
         mask[keys[values]] = 1
+
+        # For debugging
+        #keys = np.where(mask == 1)[0]
+        #print(keys)
 
         # Return mask to apply to output vector of ai
         return mask
 
     def ai_command(self, state_id):
+
+        # For debugging
+        #print("State ID: ", state_id)
+
+        if self.states[state_id][0] == False:
+            #print("Invalid state ID: ", state_id)
+            sterile_board, _ = self.get_state()
+            return sterile_board, self.next_stoneID, self.score, self.gameover
 
         state = self.states[state_id]
 
@@ -298,9 +315,11 @@ class TetrisApp(object):
         sterile_stone = np.where(self.stone_slice != 0, 2, 0)
 
         # Add converted stone to board
-        sterile_board[self.stone_offset:self.stone_offset+sterile_stone.shape[0], :] += sterile_stone
+        sterile_board[self.stone_offset+BUFFER_SIZE:self.stone_offset+BUFFER_SIZE+sterile_stone.shape[0], :] += sterile_stone
 
-        return sterile_board.tolist(), self.next_stoneID
+        sterile_board = sterile_board[BUFFER_SIZE:-BUFFER_SIZE]        
+
+        return sterile_board, self.next_stoneID
 
 def print_board(board):
     sys.stdout.write('\033[F' * len(board))  # Move cursor up to overwrite previous lines

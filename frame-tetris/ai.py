@@ -104,23 +104,28 @@ def evaluate_network(args):
                 mask = game.get_possible_states()
 
                 # Flatten the game board and append the next piece
-                flattened_board = np.array(board).flatten().tolist() + [next_piece]
+                flattened_board = np.concatenate((board.flatten(), np.array([next_piece]))).tolist()
 
                 # Convert flattened_board to tensor and add batch dimension
                 board_tensor = torch.tensor(flattened_board, dtype=torch.float32).unsqueeze(0)
 
                 # Forward pass through the network
-                output = network(board_tensor)
-
+                output = np.array(network(board_tensor).squeeze())
+                #print(output)
                 masked_output = output * mask
+                masked_output[masked_output == 0] = -1e9  # Set invalid moves to a very low value
+                #print(masked_output)
                 
                 # Select the action with the highest output value
                 # Adjust this if your network's output does not directly correspond to action indices
-                _, predicted_action = torch.max(masked_output, 1)
+                predicted_action = np.argmax(masked_output)
                 action = predicted_action.item()
                 
                 # Perform the action in the game
                 board, next_piece, score, game_over = game.ai_command(action)
+
+                if gp["gui"]:
+                    time.sleep(0.01)
 
                 move += 1
 
@@ -129,7 +134,7 @@ def evaluate_network(args):
 
             utils.print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
 
-    if profile:
+    if profile[0]:
         profiler.disable()
         t = int(time.time())
         profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{t}.prof")
@@ -159,13 +164,16 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
                 if len(processes) < MAX_WORKERS:
                     break
                 # Avoid tight loop with a short sleep
-                time.sleep(0.01)
+                time.sleep(0.001)
 
-        # Start a new process
-        args = (i, net, plays, game_params, lock, results_list, slot, profile)
-        p = multiprocessing.Process(target=evaluate_network, args=(args,))
-        p.start()
-        processes.append((p, slot))
+        if MAX_WORKERS > 1:
+            # Start a new process
+            args = (i, net, plays, game_params, lock, results_list, slot, profile)
+            p = multiprocessing.Process(target=evaluate_network, args=(args,))
+            p.start()
+            processes.append((p, slot))
+        else: # If only one worker is available, run the function in the main process
+            evaluate_network((i, net, plays, game_params, lock, results_list, 0, (False, 0)))
 
     # Wait for all remaining processes to complete
     for p, _ in processes:
@@ -231,7 +239,7 @@ if __name__ == "__main__":
     # Initialize the game
     game_params = {
         "gui": False,  # Set to True to visualize the game
-        "cell_size": 10,
+        "cell_size": 20,
         "cols": COLS,
         "rows": ROWS,
         "window_pos": (0, 0)
@@ -251,7 +259,7 @@ if __name__ == "__main__":
     else:
         # Load the top M networks from the file
         top_networks = [utils.load_network(path, input_size, hidden_layers, output_size, device) for _, path in top_networks_info]
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.1)
+        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.05)
 
     exit = False
 

@@ -67,13 +67,13 @@ def print_stats(p, *amount):
 if __name__ == "__main__":
     import glob
 
-    profiler_dir = "./step-tetris/profiler/"
+    profiler_dir = "./frame-tetris/profiler/"
     dirs = glob.glob(profiler_dir + "*")
     latest_prof_dir = max(dirs, key=lambda d: int(d.split("/")[-1]))
 
     print(f"Using profiler data from {latest_prof_dir}")
 
-    directory = './step-tetris/'
+    directory = './frame-tetris/'
 
     p = utils.merge_profile_stats(latest_prof_dir)
     print_stats(utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime'))
