@@ -11,10 +11,16 @@ def get_newest_generation_number(networks_dir):
     generation_pattern = re.compile(r'generation_(\d+)')
     
     # Get all items in the networks directory
-    all_items = os.listdir(networks_dir)
+    try:
+        all_items = os.listdir(networks_dir)
+    except FileNotFoundError:
+        os.makedirs(networks_dir, exist_ok=True)
     
     # Filter out directories that match the generation pattern
-    generation_dirs = [item for item in all_items if os.path.isdir(os.path.join(networks_dir, item)) and generation_pattern.match(item)]
+    try:
+        generation_dirs = [item for item in all_items if os.path.isdir(os.path.join(networks_dir, item)) and generation_pattern.match(item)]
+    except FileNotFoundError:
+        generation_dirs = []
     
     # Extract the generation numbers from the directory names
     generation_numbers = [int(generation_pattern.search(dir_name).group(1)) for dir_name in generation_dirs]

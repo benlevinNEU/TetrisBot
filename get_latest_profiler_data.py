@@ -6,7 +6,7 @@ if parent_dir not in sys.path:
 
 import utils
 
-from pstats import func_get_function_name, func_std_string
+from pstats import func_std_string
 
 np = 12
 sp = 3
@@ -14,8 +14,14 @@ sp = 3
 def f8(x):
     return "%8.7f" % x
 
-def print_title(p):
-    print('   ncalls    tottime/gen     percall    cumtime/gen      percall', end=' ', file=p.stream)
+def print_title(p, gen=True):
+
+    if gen:
+        print('   ncalls    tottime/gen     percall    cumtime/gen      percall', end=' ', file=p.stream)
+
+    else:
+        print('   ncalls        tottime     percall        cumtime      percall', end=' ', file=p.stream)
+    
     print('  filename:lineno(function)', file=p.stream)
 
 def print_line(p, func, ng):  # hack: should print percentages
@@ -46,13 +52,13 @@ def print_stats(p, *amount):
             desired_key = key
             break
 
-    ng = p.stats[desired_key][0]
-    print(f"\nGenerations: {ng} in %.3f seconds" % p.total_tt, file=p.stream)
-
+    if desired_key is not None:
+        ng = p.stats[desired_key][0]
+        print(f"\nGenerations: {ng} in %.3f seconds" % p.total_tt, file=p.stream)
 
     width, list = p.get_print_list(amount)
     if list:
-        print_title(p)
+        print_title(p, desired_key is None)
         for func in list:
             print_line(p, func, ng)
         print(file=p.stream)
