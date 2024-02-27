@@ -7,9 +7,18 @@ from frame_tetris import TetrisApp, COLS, ROWS
 import multiprocessing
 from multiprocessing import Process, Lock
 
-from pynput import keyboard
-from pynput.keyboard import Key
+import platform
 
+pltfm = None
+if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.release():
+    pltfm = 'WSL'
+    import curses
+    #import keyboard
+else:
+    pltfm = 'Mac'
+    from pynput import keyboard
+    from pynput.keyboard import Key
+    
 import cProfile
 
 # Add the parent directory to sys.path
@@ -41,25 +50,30 @@ class TetrisNet(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
+    
+def load_network(filepath, input_size, hidden_layers, output_size, device='cpu'):
+    """
+    Load a network from a file.
+
+    Args:
+        filepath (str): Path to the .pth file.
+        input_size (int): Size of the input layer.
+        hidden_layers (list): List of sizes of the hidden layers.
+        output_size (int): Size of the output layer.
+        device (str): Device to load the network onto, 'cpu' or 'cuda'.
+
+    Returns:
+        TetrisNet: The loaded network.
+    """
+    network = TetrisNet(input_size, hidden_layers, output_size)
+    state_dict = torch.load(filepath, map_location=device)
+    network.load_state_dict(state_dict)
+    return network
 
 def apply_custom_initialization(m):
     if isinstance(m, nn.Linear):
         nn.init.xavier_uniform_(m.weight)
         nn.init.uniform_(m.bias, -0.01, 0.01)
-
-def mutate_network(network, mutation_rate=0.01, mutation_strength=0.1):
-    with torch.no_grad():
-        for param in network.parameters():
-            if len(param.shape) > 1:  # Weights of linear layers
-                for i in range(param.shape[0]):
-                    for j in range(param.shape[1]):
-                        if np.random.rand() < mutation_rate:
-                            param[i][j] += mutation_strength * torch.randn(1).item()  # Use .item()
-            else:  # Biases of linear layers
-                for i in range(param.shape[0]):
-                    if np.random.rand() < mutation_rate:
-                        param[i] += mutation_strength * torch.randn(1).item()  # Use .item()
-
 
 def evaluate_network(args):
     """
@@ -193,36 +207,85 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
     results = list(results_list)
     return results
 
-def load_network(filepath, input_size, hidden_layers, output_size, device='cpu'):
-    """
-    Load a network from a file.
+def mutate_network(args):
+    index, network, mutation_rate, mutation_strength, networks_list, profile = args
 
-    Args:
-        filepath (str): Path to the .pth file.
-        input_size (int): Size of the input layer.
-        hidden_layers (list): List of sizes of the hidden layers.
-        output_size (int): Size of the output layer.
-        device (str): Device to load the network onto, 'cpu' or 'cuda'.
+    if profile[0]:
+        profiler = cProfile.Profile()
+        profiler.enable()
 
-    Returns:
-        TetrisNet: The loaded network.
-    """
-    network = TetrisNet(input_size, hidden_layers, output_size)
-    state_dict = torch.load(filepath, map_location=device)
-    network.load_state_dict(state_dict)
-    return network
+    with torch.no_grad():
+        for param in network.parameters():
+            if len(param.shape) > 1:  # Weights of linear layers
+                for i in range(param.shape[0]):
+                    for j in range(param.shape[1]):
+                        if np.random.rand() < mutation_rate:
+                            param[i][j] += mutation_strength * torch.randn(1).item()  # Use .item()
+            else:  # Biases of linear layers
+                for i in range(param.shape[0]):
+                    if np.random.rand() < mutation_rate:
+                        param[i] += mutation_strength * torch.randn(1).item()  # Use .item()
 
-def mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.1):
-        next_generation = []
-        for net in top_networks:
-            for _ in range(int(population_size / top_n)):
-                new_net = copy.deepcopy(net)
-                mutate_network(new_net, mutation_rate, mutation_strength)
-                next_generation.append(new_net)
+    if profile[0]:
+        profiler.disable()
+        t = int(time.time())
+        profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
 
-        return next_generation
+    networks_list.append(network)
 
-if __name__ == "__main__":
+def mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.1, profile=(False, 0)):
+    next_generation = []
+
+    manager = multiprocessing.Manager()
+    lock = manager.Lock()
+    networks_list = manager.list()  # Managed list for collecting results
+
+    processes = []
+
+    count = 0
+    for net in top_networks:
+        for _ in range(int(population_size / len(top_networks))):
+            count += 1
+
+            if len(processes) >= MAX_WORKERS:
+                # Continuously check if any process has finished
+                while True:
+                    # Check each process in the list
+                    for p in processes:
+                        if not p.is_alive():
+                            processes.remove(p)
+
+                    # Break the loop if we are under the max_workers limit
+                    if len(processes) < MAX_WORKERS:
+                        break
+                    # Avoid tight loop with a short sleep
+                    time.sleep(0.001)
+
+            new_net = copy.deepcopy(net)
+            if MAX_WORKERS > 1:
+                args = (count, new_net, mutation_rate, mutation_strength, networks_list, profile)
+                p = multiprocessing.Process(target=mutate_network, args=(args,))
+                p.start()
+                processes.append(p)
+            else:
+                mutate_network((count, net, mutation_rate, mutation_strength, networks_list, (False, 0)))
+
+            # Simple progress bar
+            progress = int((count) / population_size * 100)
+            sys.stdout.write(f"\rMutating: {progress}%")
+            sys.stdout.flush()
+
+    # Wait for all remaining processes to complete
+    for p in processes:
+        p.join()
+
+    sys.stdout.write(f"\r")
+    sys.stdout.flush()
+
+    next_generation = list(networks_list)
+    return next_generation
+
+def main(stdscr):
 
     profile = True
     tid = int(time.time())
@@ -259,8 +322,7 @@ if __name__ == "__main__":
     #print("\n\n\n\n\n\n\n")
 
     networks_dir = "./frame-tetris/networks/shape_400_200_100"
-    M = 5  # Number of top networks to load
-    top_networks_info = utils.find_top_networks(networks_dir, M)
+    top_networks_info = utils.find_top_networks(networks_dir, top_n)
     
     if len(top_networks_info) == 0:
         # Initialize population with custom initialization
@@ -275,15 +337,22 @@ if __name__ == "__main__":
     exit = False
 
     def on_press(key):
+        global exit
         # Check if the pressed key is ESC
         if key == Key.esc:
-            global exit
             exit = True
             return False
 
     # Set up the listener
-    listener = keyboard.Listener(on_press=on_press)
-    listener.start()
+    if pltfm == 'Mac':
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
+    else:
+        # Initialize curses environment
+        curses.cbreak()  # Disable line buffering
+        stdscr.keypad(True)  # Enable special keys to be recorded
+        curses.noecho()  # Prevent input from being echoed to the screen
+        stdscr.nodelay(True)  # Make getch() non-blocking
         
     for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
 
@@ -307,7 +376,15 @@ if __name__ == "__main__":
         # Extract the networks of the top performers
         top_networks = [population[index] for index, _ in top_performers]
 
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.1, mutation_strength=0.01)
+        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.1, mutation_strength=0.01, profile=(profile, tid))
+
+        if pltfm == 'WSL':
+            # Non-blocking check for input
+            key = stdscr.getch()
+            if key == 27:  # ESC key
+                break
+            elif key != -1:
+                stdscr.refresh()
 
         # Listen for escape key and break the loop if pressed
         if exit:
@@ -325,3 +402,10 @@ if __name__ == "__main__":
         p = utils.merge_profile_stats(profiler_dir)
         print_stats(utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime'))
         print_stats(p.strip_dirs().sort_stats('tottime'), 30)
+
+if __name__ == "__main__":
+    
+    if pltfm == 'WSL':
+        curses.wrapper(main)
+    else:
+        main(None)
