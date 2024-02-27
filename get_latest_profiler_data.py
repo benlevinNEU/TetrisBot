@@ -24,7 +24,7 @@ def print_title(p, gen=True):
     
     print('  filename:lineno(function)', file=p.stream)
 
-def print_line(p, func, ng):  # hack: should print percentages
+def print_line(p, func, ng=1):  # hack: should print percentages
 
     cc, nc, tt, ct, callers = p.stats[func]
     c = str(nc)
@@ -52,13 +52,14 @@ def print_stats(p, *amount):
             desired_key = key
             break
 
+    ng = 1
     if desired_key is not None:
         ng = p.stats[desired_key][0]
         print(f"\nGenerations: {ng} in %.3f seconds" % p.total_tt, file=p.stream)
 
     width, list = p.get_print_list(amount)
     if list:
-        print_title(p, desired_key is None)
+        print_title(p, desired_key is not None)
         for func in list:
             print_line(p, func, ng)
         print(file=p.stream)
