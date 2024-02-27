@@ -28,6 +28,7 @@ for root, dirs, files in os.walk(networks_dir):
         if generation_scores:
             average_score = sum(generation_scores) / len(generation_scores)
             average_scores.append(average_score)
+            
             best_generation_score = max(generation_scores)
             best_scores_per_generation.append(best_generation_score)
 
