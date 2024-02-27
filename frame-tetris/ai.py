@@ -22,8 +22,8 @@ from get_latest_profiler_data import print_stats
 import numpy as np
 
 # Use all execpt 1 of the available cores
-MAX_WORKERS = multiprocessing.cpu_count() # TODO: Add -1 if you don't want to use all cores
-MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
+#MAX_WORKERS = 1 # TODO: Remove this line to use all cores
 PROF_DIR = "./frame-tetris/profiler/"
 
 class TetrisNet(nn.Module):
@@ -125,19 +125,20 @@ def evaluate_network(args):
                 board, next_piece, score, game_over = game.ai_command(action)
 
                 if gp["gui"]:
-                    time.sleep(0.01)
+                    #time.sleep(0.01)
+                    pass
 
                 move += 1
 
             # Accumulate the score over multiple games
             total_score += score
 
-            utils.print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
+            #utils.print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
 
     if profile[0]:
         profiler.disable()
         t = int(time.time())
-        profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{t}.prof")
+        profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
 
     results_list.append((index, total_score))
 
@@ -175,9 +176,18 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
         else: # If only one worker is available, run the function in the main process
             evaluate_network((i, net, plays, game_params, lock, results_list, 0, (False, 0)))
 
+        # Simple progress bar
+        total_population = len(population)
+        progress = int((i + 1) / total_population * 100)
+        sys.stdout.write(f"\rGeneration Running: {progress}%")
+        sys.stdout.flush()
+        
     # Wait for all remaining processes to complete
     for p, _ in processes:
         p.join()
+
+    sys.stdout.write(f"\r")
+    sys.stdout.flush()
 
     # Convert the manager list to a regular list for further processing
     results = list(results_list)
@@ -227,13 +237,13 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     # Parameters for the evolutionary process
-    population_size = 100
-    top_n = 10
-    generations = 420
+    population_size = 50
+    top_n = 8
+    generations = 10000
     plays = 3  # Number of games to play for each network each generation
 
     input_size = COLS * ROWS + 1
-    hidden_layers = [128, 64]  # Example hidden layers sizes
+    hidden_layers = [400, 200, 100]  # Example hidden layers sizes
     output_size = 4*COLS  # Adjust based on the number of possible actions
 
     # Initialize the game
@@ -245,9 +255,10 @@ if __name__ == "__main__":
         "window_pos": (0, 0)
     }
 
-    print("Starting Evolutionary Training\n\n\n\n\n\n\n")
+    print("Starting Evolutionary Training")
+    #print("\n\n\n\n\n\n\n")
 
-    networks_dir = "./frame-tetris/networks"
+    networks_dir = "./frame-tetris/networks/shape_400_200_100"
     M = 5  # Number of top networks to load
     top_networks_info = utils.find_top_networks(networks_dir, M)
     
@@ -259,7 +270,7 @@ if __name__ == "__main__":
     else:
         # Load the top M networks from the file
         top_networks = [utils.load_network(path, input_size, hidden_layers, output_size, device) for _, path in top_networks_info]
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.05)
+        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.2, mutation_strength=0.1)
 
     exit = False
 
@@ -288,14 +299,15 @@ if __name__ == "__main__":
         utils.save_networks(networks_dir, [(population[index], score) for index, score in top_performers], generation)
 
         # Print generation info
-        sys.stdout.write(f'\033[{population_size+1}B')
-        sys.stdout.flush()
-        print(f"Generation {generation}: Top Score = {top_performers[0][1]}\n\n\n\n\n")
+        #sys.stdout.write(f'\033[{population_size+1}B')
+        #sys.stdout.flush()
+        print(f"Generation {generation}: Top Score = {top_performers[0][1]}")
+        #print("\n\n\n\n\n")
 
         # Extract the networks of the top performers
         top_networks = [population[index] for index, _ in top_performers]
 
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.05, mutation_strength=0.2)
+        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.1, mutation_strength=0.01)
 
         # Listen for escape key and break the loop if pressed
         if exit:

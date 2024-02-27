@@ -3,7 +3,7 @@ import re
 import matplotlib.pyplot as plt
 import numpy as np
 
-networks_dir = './frame-tetris/networks'
+networks_dir = './frame-tetris/networks/shape_400_200_100'
 generation_pattern = re.compile(r'generation_(\d+)')
 score_pattern = re.compile(r'network_(\d+)\.pth')
 
@@ -20,9 +20,11 @@ for root, dirs, files in os.walk(networks_dir):
             score_match = score_pattern.search(file)
             if score_match:
                 score = float(score_match.group(1))
+                if score > 1800:
+                    print(f'Found a score of {score} in {file} in generation {generation_match.group(1)}')
                 generation_scores.append(score)
                 all_scores.append(score)
-        
+
         if generation_scores:
             average_score = sum(generation_scores) / len(generation_scores)
             average_scores.append(average_score)
