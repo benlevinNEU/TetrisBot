@@ -28,141 +28,105 @@ if parent_dir not in sys.path:
 
 import utils
 from get_latest_profiler_data import print_stats
-import numpy as np
+
+from evals import *
 
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
-#MAX_WORKERS = 1 # TODO: Remove this line to use all cores
-PROF_DIR = "./frame-tetris/profiler/"
+MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+PROF_DIR = "./place-tetris/profiler/"
 
-class TetrisNet(nn.Module):
-    def __init__(self, input_size, hidden_layers, output_size):
-        super(TetrisNet, self).__init__()
-        layers = []
-        previous_layer_size = input_size
-        for hidden_layer_size in hidden_layers:
-            layer = nn.Linear(previous_layer_size, hidden_layer_size)
-            layers.append(layer)
-            layers.append(nn.ReLU())
-            previous_layer_size = hidden_layer_size
-        layers.append(nn.Linear(previous_layer_size, output_size))
-        self.layers = nn.Sequential(*layers)
+class Model():
+    #def __init__(self, weights=np.random.rand(6)*2-1):
+    def __init__(self, weights=np.array([0.1, 0.4, 0.01, 0.2, 0.1, -0.2])):
+        self.weights = weights
 
-    def forward(self, x):
-        return self.layers(x)
-    
-def load_network(filepath, input_size, hidden_layers, output_size, device='cpu'):
-    """
-    Load a network from a file.
+    def play(self, gp, pos):
+        self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], window_pos=pos)
+        
+        if gp["gui"]:
+            self.game.update_board()
 
-    Args:
-        filepath (str): Path to the .pth file.
-        input_size (int): Size of the input layer.
-        hidden_layers (list): List of sizes of the hidden layers.
-        output_size (int): Size of the output layer.
-        device (str): Device to load the network onto, 'cpu' or 'cuda'.
+        options = self.game.getFinalStates()
+        gameover = False
+        score = 0
 
-    Returns:
-        TetrisNet: The loaded network.
-    """
-    network = TetrisNet(input_size, hidden_layers, output_size)
-    state_dict = torch.load(filepath, map_location=device)
-    network.load_state_dict(state_dict)
-    return network
+        while not gameover and len(options) > 0:
+            min_cost = np.inf
+            best_option = None
 
-def apply_custom_initialization(m):
-    if isinstance(m, nn.Linear):
-        nn.init.xavier_uniform_(m.weight)
-        nn.init.uniform_(m.bias, -0.01, 0.01)
+            for option in options:
+                c = self.cost(option)
+                if c < min_cost:
+                    min_cost = c
+                    best_option = option
 
-def evaluate_network(args):
-    """
-    Evaluate the network by playing a game using the provided game function.
-    
-    Args:
-        network (nn.Module): The neural network to evaluate.
-        game_func (callable): A function that takes an action (int) and returns the
-                              flattened game board, score, and game over flag.
-                              
-    Returns:
-        int: The final score achieved by the network.
-    """
+            options, game_over, score = self.game.ai_command(best_option)
 
-    index, network, plays, gp, lock, results_list, slot, profile = args
+        self.game.quit_game()
+        return score
 
-    if profile[0]:
-        profiler = cProfile.Profile()
-        profiler.enable()
+    def cost(self, state):
 
-    with torch.no_grad():  # Ensure no gradients are computed during evaluation
-        network.eval()  # Set the network to evaluation mode
+        vals = getEvals(state)
+        return np.dot(self.weights, np.array(vals))
 
-        total_score = 0
+    def mutate(self, args):
+
+        index, mutation_rate, mutation_strength, models, nchildren, profile = args
+
+        if profile[0]:
+            profiler = cProfile.Profile()
+            profiler.enable()
+        
+        children = []
+
+        for _ in range(nchildren):
+            new_weights = self.weights.copy()
+
+            for i in range(len(new_weights)):
+                if np.random.rand() < mutation_rate:
+                    new_weights[i] += mutation_strength * np.random.randn()
+
+            children.append(Model(new_weights))
+
+        if profile[0]:
+            profiler.disable()
+            t = int(time.time())
+            profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
+
+        models.append(children)
+
+        return children
+
+    def evaluate(self, args):
+        index, plays, gp, results_list, slot, profile = args
+
+        if profile[0]:
+            profiler = cProfile.Profile()
+            profiler.enable()
 
         width = gp["cell_size"] * (gp["cols"] + 6)
         height = gp["cell_size"] * gp["rows"] + 80
         pos = ((width * slot) % 2560, height * int(slot / int(2560 / width)))
 
-        for i in range(plays):
+        scores = []
+        for _ in range(plays):
+            scores.append(self.play(gp, pos))
 
-            game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], window_pos=pos)
+        results_list.append((index, np.mean(scores)))
 
-            # Initialize the game
-            board, next_piece = game.get_state()
-            game_over = False
-            
-            move = 0
-            
-            while not game_over and move < 10000: # TODO: Use Simulated anealing to reduce this number to incentivise quicker games
-
-                mask = game.get_possible_states()
-
-                # Flatten the game board and append the next piece
-                flattened_board = np.concatenate((board.flatten(), np.array([next_piece]))).tolist()
-
-                # Convert flattened_board to tensor and add batch dimension
-                board_tensor = torch.tensor(flattened_board, dtype=torch.float32).unsqueeze(0)
-
-                # Forward pass through the network
-                output = np.array(network(board_tensor).squeeze())
-                #print(output)
-                masked_output = output * mask
-                masked_output[masked_output == 0] = -1e9  # Set invalid moves to a very low value
-                #print(masked_output)
-                
-                # Select the action with the highest output value
-                # Adjust this if your network's output does not directly correspond to action indices
-                predicted_action = np.argmax(masked_output)
-                action = predicted_action.item()
-                
-                # Perform the action in the game
-                board, next_piece, score, game_over = game.ai_command(action)
-
-                if gp["gui"]:
-                    #time.sleep(0.01)
-                    pass
-
-                move += 1
-
-            # Accumulate the score over multiple games
-            total_score += score
-
-            #utils.print_to_line(lock, f"Network {index} - Game {i + 1}/{plays} - Final score: {total_score}\n", index)
-
-    if profile[0]:
-        profiler.disable()
-        t = int(time.time())
-        profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
-
-    results_list.append((index, total_score))
+        if profile[0]:
+            profiler.disable()
+            t = int(time.time())
+            profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
 
 def evaluate_population(population, plays, game_params, profile=(False, 0)):
     manager = multiprocessing.Manager()
-    lock = manager.Lock()
     results_list = manager.list()  # Managed list for collecting results
 
     processes = []
-    for i, net in enumerate(population):
+    for i, model in enumerate(population):
         if i < MAX_WORKERS:
             slot = i
 
@@ -183,12 +147,12 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
 
         if MAX_WORKERS > 1:
             # Start a new process
-            args = (i, net, plays, game_params, lock, results_list, slot, profile)
-            p = multiprocessing.Process(target=evaluate_network, args=(args,))
+            args = (i, plays, game_params, results_list, slot, profile)
+            p = multiprocessing.Process(target=model.evaluate, args=(args,))
             p.start()
             processes.append((p, slot))
         else: # If only one worker is available, run the function in the main process
-            evaluate_network((i, net, plays, game_params, lock, results_list, 0, (False, 0)))
+            model.evaluate((i, plays, game_params, results_list, 0, (False, 0)))
 
         # Simple progress bar
         total_population = len(population)
@@ -207,44 +171,20 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
     results = list(results_list)
     return results
 
-def mutate_network(args):
-    index, network, mutation_rate, mutation_strength, networks_list, profile = args
-
-    if profile[0]:
-        profiler = cProfile.Profile()
-        profiler.enable()
-
-    with torch.no_grad():
-        for param in network.parameters():
-            if len(param.shape) > 1:  # Weights of linear layers
-                for i in range(param.shape[0]):
-                    for j in range(param.shape[1]):
-                        if np.random.rand() < mutation_rate:
-                            param[i][j] += mutation_strength * torch.randn(1).item()  # Use .item()
-            else:  # Biases of linear layers
-                for i in range(param.shape[0]):
-                    if np.random.rand() < mutation_rate:
-                        param[i] += mutation_strength * torch.randn(1).item()  # Use .item()
-
-    if profile[0]:
-        profiler.disable()
-        t = int(time.time())
-        profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
-
-    networks_list.append(network)
-
-def mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_strength=0.1, profile=(False, 0)):
+def mutate_next_gen(top_models, population_size, mutation_rate=0.01, mutation_strength=0.1, profile=(False, 0)):
     next_generation = []
 
     manager = multiprocessing.Manager()
     lock = manager.Lock()
-    networks_list = manager.list()  # Managed list for collecting results
+    models = manager.list()  # Managed list for collecting results
 
     processes = []
 
+    nchildren = int(population_size / len(top_models))
+
     count = 0
-    for net in top_networks:
-        for _ in range(int(population_size / len(top_networks))):
+    for model in top_models:
+        for _ in range(nchildren):
             count += 1
 
             if len(processes) >= MAX_WORKERS:
@@ -261,14 +201,14 @@ def mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_
                     # Avoid tight loop with a short sleep
                     time.sleep(0.001)
 
-            new_net = copy.deepcopy(net)
+            new_net = copy.deepcopy(model)
             if MAX_WORKERS > 1:
-                args = (count, new_net, mutation_rate, mutation_strength, networks_list, profile)
-                p = multiprocessing.Process(target=mutate_network, args=(args,))
+                args = (count, new_net, mutation_rate, mutation_strength, models, nchildren, profile)
+                p = multiprocessing.Process(target=model.mutate, args=(args,))
                 p.start()
                 processes.append(p)
             else:
-                mutate_network((count, net, mutation_rate, mutation_strength, networks_list, (False, 0)))
+                model.mutate((count, mutation_rate, mutation_strength, models, nchildren (False, 0)))
 
             # Simple progress bar
             progress = int((count) / population_size * 100)
@@ -282,7 +222,7 @@ def mutate_next_gen(top_networks, population_size, mutation_rate=0.01, mutation_
     sys.stdout.write(f"\r")
     sys.stdout.flush()
 
-    next_generation = list(networks_list)
+    next_generation = list(models)
     return next_generation
 
 def main(stdscr):
@@ -296,7 +236,6 @@ def main(stdscr):
         profiler = cProfile.Profile()
         profiler.enable()
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     multiprocessing.set_start_method('spawn')
 
     # Parameters for the evolutionary process
@@ -304,10 +243,6 @@ def main(stdscr):
     top_n = 8
     generations = 10000
     plays = 3  # Number of games to play for each network each generation
-
-    input_size = COLS * ROWS + 1
-    hidden_layers = [400, 200, 100]  # Example hidden layers sizes
-    output_size = 4*COLS  # Adjust based on the number of possible actions
 
     # Initialize the game
     game_params = {
@@ -321,18 +256,16 @@ def main(stdscr):
     print("Starting Evolutionary Training")
     #print("\n\n\n\n\n\n\n")
 
-    networks_dir = "./frame-tetris/networks/shape_400_200_100"
+    networks_dir = "./place-tetris/networks/"
     top_networks_info = utils.find_top_networks(networks_dir, top_n)
-    
-    if len(top_networks_info) == 0:
+    population = [Model() for _ in range(population_size)] 
+    '''if len(top_networks_info) == 0:
         # Initialize population with custom initialization
-        population = [TetrisNet(input_size, hidden_layers, output_size) for _ in range(population_size)]
-        for net in population:
-            net.apply(apply_custom_initialization)
+        population = [Model() for _ in range(population_size)]
     else:
         # Load the top M networks from the file
-        top_networks = [utils.load_network(path, input_size, hidden_layers, output_size, device) for _, path in top_networks_info]
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.2, mutation_strength=0.1)
+        top_networks = [utils.load_(path, weights) for _, path in top_networks_info]
+        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.2, mutation_strength=0.1)'''
 
     exit = False
 
@@ -354,7 +287,8 @@ def main(stdscr):
         curses.noecho()  # Prevent input from being echoed to the screen
         stdscr.nodelay(True)  # Make getch() non-blocking
         
-    for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
+    #for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
+    for generation in range(0 + 1, generations):
 
         # Evaluate all networks in parallel
         results = evaluate_population(population, plays, game_params, (profile, tid))
@@ -365,7 +299,7 @@ def main(stdscr):
         # Select top performers
         top_performers = results[:top_n]
 
-        utils.save_networks(networks_dir, [(population[index], score) for index, score in top_performers], generation)
+        #utils.save_networks(networks_dir, [(population[index], score) for index, score in top_performers], generation)
 
         # Print generation info
         #sys.stdout.write(f'\033[{population_size+1}B')
@@ -397,7 +331,7 @@ def main(stdscr):
         profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
 
         profiler_dir = f"{PROF_DIR}{tid}"
-        directory = './frame-tetris'
+        directory = './place-tetris'
 
         p = utils.merge_profile_stats(profiler_dir)
         print_stats(utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime'))

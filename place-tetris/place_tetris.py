@@ -10,13 +10,30 @@ if parent_dir not in sys.path:
 from tetris_utils import *
 import utils
 import cProfile
-from state_gen import get_stone_states
+#from state_gen import get_stone_states
 
-BUFFER_SIZE = 3
+import platform
+import time
 
-all_stone_states = []
-for stone in range(len(tetris_shapes)):
-    all_stone_states.append(get_stone_states(stone))
+pltfm = None
+if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.release():
+    pltfm = 'WSL'
+    import curses
+    #import keyboard
+else:
+    pltfm = 'Mac'
+    from pynput import keyboard
+    from pynput.keyboard import Key
+
+BUFFER_SIZE = 4
+
+actions = [
+    lambda stone, x, y: (stone, x + 1, y),
+    lambda stone, x, y: (stone, x - 1, y),
+    lambda stone, x, y: (np.rot90(stone), x, y),
+    lambda stone, x, y: (np.rot90(stone, k=3), x, y),
+    lambda stone, x, y: (stone, x, y + 1)
+]
 
 class TetrisApp(object):
     def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, window_pos=(0, 0)):
@@ -47,7 +64,7 @@ class TetrisApp(object):
         # block them.
         self.next_stoneID = rand(len(tetris_shapes))
         #self.next_stoneID = 5 # TODO: remove this line
-        self.next_stone = tetris_shapes[self.next_stoneID]
+        self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
         self.gameover = False
         self.moves_wo_drop = 0
@@ -57,12 +74,14 @@ class TetrisApp(object):
         self.init_game()
 
     def remove_row(self, board, row):
-        rows, cols = board.shape
-        # Create a new row of zeros
-        new_row = np.zeros((1, cols), dtype=int)
         # Concatenate the new row with all rows except the one to remove
-        new_board = np.vstack((new_row, np.delete(board, obj=row, axis=0)))
+        new_board = np.vstack((np.zeros((1, self.cols), dtype=int), np.delete(board, obj=row, axis=0)))
+
+        if new_board.shape != (self.rows, self.cols):
+            pass
+
         return new_board
+    
     
     def new_board(self):
         board = np.zeros((self.rows, self.cols), dtype=int)
@@ -70,6 +89,10 @@ class TetrisApp(object):
         # Add buffer to bottom of board to avoid index errors
         buffer = np.ones((BUFFER_SIZE, board.shape[1]), dtype=int)
         board = np.vstack((buffer, board, buffer))
+
+        # Add buffer to sides of board to avoid index errors
+        buffer = np.ones((board.shape[0], BUFFER_SIZE), dtype=int)
+        board = np.hstack((buffer, board, buffer))
         return board
 
     def new_stone(self):
@@ -78,22 +101,19 @@ class TetrisApp(object):
 
         self.next_stoneID = rand(len(tetris_shapes))
         #self.next_stoneID = 5 # TODO: remove this line
-        self.next_stone = tetris_shapes[self.next_stoneID]
+        self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
-        self.stone_state = int(self.cols / 2 - len(self.stone[0]) / 2)
-        self.stone_offset = 0
-
-        # Get board state slice for stone
-        self.stone_slice = all_stone_states[self.stoneID][self.stone_state]
+        self.stone_x = int((self.board.shape[1] - 2 * BUFFER_SIZE) / 2 - len(self.stone[0]) / 2)
+        self.stone_y = 0
 
         # Drop stone until slice touches top layer of blocks        
-        non_zero_rows = np.all(self.board == 0, axis=1)
-        top_row = len(non_zero_rows) - np.argmax(non_zero_rows[::-1]) - BUFFER_SIZE
+        non_zero_rows = np.all(self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] == 0, axis=1)
+        top_row = len(non_zero_rows) - np.argmax(non_zero_rows[::-1])
 
-        self.stone_offset = top_row - self.stone_slice.shape[0]
-        self.score += self.stone_offset
+        self.stone_y = max(top_row - self.stone.shape[0], 0)
+        self.score += self.stone_y
 
-        if not self.is_valid_state(self.stone_slice, self.stone_offset):
+        if not self.is_valid_state(self.stone, self.stone_x, self.stone_y)[0]:
             self.gameover = True
 
     def init_game(self):
@@ -149,13 +169,12 @@ class TetrisApp(object):
                             0,
                         )
                     except IndexError: # TODO: Fix know bug that causes this
-                        with open('./frame-tetris/error-log/log.txt', 'a') as file:
+                        with open('./place-tetris/error-log/log.txt', 'a') as file:
                             prnt = "\n".join(map(str, matrix))
                             file.write("New error: \n" + prnt + '\n\n')
 
     def add_cl_lines(self, n):
-        #linescores = [0, 40, 100, 300, 1200]
-        linescores = [0, 200, 500, 1500, 6000] # TODO: increase reward for lines temporarily
+        linescores = [0, 40, 100, 300, 1200]
         self.lines += n
         self.score += linescores[n] * self.level
         if self.lines >= self.level * 6:
@@ -166,35 +185,12 @@ class TetrisApp(object):
         if self.gui: pygame.display.update()
         sys.exit()
 
-    def drop(self, manual):
-        if not self.gameover:
-            self.score += 1 if manual else 0
-            self.stone_offset += 1
-
-            if not self.is_valid_state(self.stone_slice, self.stone_offset):
-                self.stone_offset -= 1
-                self.board[BUFFER_SIZE+self.stone_offset:BUFFER_SIZE+self.stone_offset+self.stone_slice.shape[0], :] += self.stone_slice
-                cleared_rows = 0
-                while True:
-                    for i, row in enumerate(self.board[BUFFER_SIZE:-BUFFER_SIZE]):
-                        if 0 not in row:
-                            self.board[BUFFER_SIZE:-BUFFER_SIZE] = self.remove_row(self.board[BUFFER_SIZE:-BUFFER_SIZE], i)
-                            cleared_rows += 1
-                            break
-                    else:
-                        break
-                self.add_cl_lines(cleared_rows)
-
-                self.new_stone()
-                return True
-        return False
-
     def start_game(self):
         if self.gameover:
             self.init_game()
             self.gameover = False
 
-    def update_board(self):
+    def update_board(self, board=None):
         self.screen.fill((0, 0, 0))
         if self.gameover:
             self.center_msg(
@@ -214,112 +210,118 @@ class TetrisApp(object):
                 (self.rlim + self.cell_size, self.cell_size * 5),
             )
             self.draw_matrix(self.bground_grid, (0, 0))
-            self.draw_matrix(self.stone_slice.tolist(), (0, self.stone_offset))
-            self.draw_matrix(self.board[BUFFER_SIZE:-BUFFER_SIZE].tolist(), (0, 0))
+            
+            if board is None:
+                self.draw_matrix(self.stone, (self.stone_x, self.stone_y))
+                self.draw_matrix(self.trimBoard(self.board).tolist(), (0, 0))
+            else:
+                self.draw_matrix(board.tolist(), (0, 0))
             self.draw_matrix(self.next_stone, (self.cols + 1, 2))
 
         pygame.display.update()
 
+        #print(self.trimBoard(self.board).tolist() if board is None else self.trimBoard(board).tolist())
+
+    # Preforms BFS from current state to find all possible finishing states for board
+    def getFinalStates(self):
+
+        visited_states = set()  # To track visited states
+        final_boards = []       # To store final board states
+        queue = [(self.stone, self.stone_x, self.stone_y, [])]  # Initial queue with starting state and board
+        current_board = self.board.copy()  # Store the current board state
+
+        if current_board.shape != (self.rows + 2*BUFFER_SIZE, self.cols + 2*BUFFER_SIZE):
+            pass
+
+        while queue:
+            current_stone, current_x, current_y, steps = queue.pop(0)  # Dequeue an element
+            for i, action in enumerate(actions):
+                new_stone, new_x, new_y = action(current_stone, current_x, current_y)
+                if self.is_valid_state(new_stone, new_x, new_y):  # Assuming this function exists and checks if the move is valid
+                    valid, touching_bottom = self.is_valid_state(new_stone, new_x, new_y)
+                    if valid:
+                        state_key = (tuple(map(tuple, new_stone)), new_x, new_y)  # Convert to a hashable state
+                        if state_key not in visited_states:
+                            visited_states.add(state_key)
+                            if touching_bottom:
+                                new_board = current_board.copy()
+                                new_board[BUFFER_SIZE+new_y:BUFFER_SIZE+new_y+new_stone.shape[0], 
+                                          BUFFER_SIZE+new_x:BUFFER_SIZE+new_x+new_stone.shape[1]] += new_stone
+                                final_boards.append((self.trimBoard(new_board), steps + [i]))  # Store the potential final board state and steps to get there
+                                
+                            queue.append((new_stone, new_x, new_y, steps + [i]))  # Enqueue new state
+
+        return final_boards
+
     # Determines if this state is possible 
-    # Potentially faster replacement for check_collision
-    def is_valid_state(self, stone_slice, offset):
+    # Also returns if stone touching bottom
+    # VERY PROUD OF HOW BEAUTIFUL THIS METHOD IS
+    def is_valid_state(self, stone, x, y):
     
         board = self.board.copy()
-        stone = stone_slice.copy()
+        stone = stone.copy()
 
         board[board != 0] = 1
         stone[stone != 0] = 1
 
+        stone = np.vstack((stone, np.zeros((1, stone.shape[1]), dtype=int)))
+
+        non_zero_rows = np.all(stone == 0, axis=1)
+        insert_at = stone.shape[0] - np.argmin(non_zero_rows[::-1])
+
+        stone[insert_at] = stone[insert_at-1]*3
+
         try:
-            board[offset+BUFFER_SIZE:offset+BUFFER_SIZE+stone.shape[0]] += stone
+            board[BUFFER_SIZE+y:BUFFER_SIZE+y+stone.shape[0], 
+                  BUFFER_SIZE+x:BUFFER_SIZE+x+stone.shape[1]] += stone
         except ValueError:
-            print("Stone: ", stone)
-            print("Offset: ", offset)
-            print("Board: ", board)
-            return False
+            print(board)
+            print(stone)
 
-        if np.any(board > 1):
-            return False
+        if np.any(board == 2):
+            return False, False
 
-        return True       
-    
-    # Determines if this state is reachable from current state
-    def is_reachable_state(self, stone_slice, offset): # TODO: impliment this
-        return True
+        return True, np.any(board == 4)
 
-    # Rotations in states are represented as rotations from current stone position
-    def get_possible_states(self):
+    def trimBoard(self, board):
+        return board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE]
 
-        stone_states = all_stone_states[self.stoneID]
+    def ai_command(self, choice):
 
-        for i in range(self.cols * 4):
+        (board, actions_) = choice
 
-            state = stone_states[i]
+        if self.gui:
+            for action in actions_:
+                self.stone, self.stone_x, self.stone_y = actions[action](self.stone, self.stone_x, self.stone_y)
+                self.update_board()
+                pygame.time.wait(5)
 
-            if np.all(state == 0): # Occurs when state index is invalid for stone
-                self.states[i] = (False, state, self.stone_offset)
-                continue
+            self.board[BUFFER_SIZE+self.stone_y:BUFFER_SIZE+self.stone_y+self.stone.shape[0],
+                       BUFFER_SIZE+self.stone_x:BUFFER_SIZE+self.stone_x+self.stone.shape[1]] += self.stone
 
-            real = self.is_valid_state(state, self.stone_offset)
+        else:
+            self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = board
 
-            # Determine if this possition is reachable from current state
-            reachable = False
-            if real:
-                reachable = self.is_reachable_state(state, self.stone_offset)
+        cleared_rows = 0
+        while True:
+            for i, row in enumerate(self.board[BUFFER_SIZE:-BUFFER_SIZE]):
+                if 0 not in row:
+                    self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = self.remove_row(self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE], i)
+                    cleared_rows += 1
+                    break
+            else:
+                break
+        self.add_cl_lines(cleared_rows)
 
-            self.states[i] = (reachable, state, self.stone_offset)
-    
-        keys = np.array(list(self.states.keys()))
-        values = np.array([v[0] for v in self.states.values()])
-
-        # Create an array with zeros
-        mask = np.zeros(4*COLS, dtype=int)
-
-        # Set positions to 1 based on condition
-        mask[keys[values]] = 1
-
-        # For debugging
-        #keys = np.where(mask == 1)[0]
-        #print(keys)
-
-        # Return mask to apply to output vector of ai
-        return mask
-
-    def ai_command(self, state_id):
-
-        # For debugging
-        #print("State ID: ", state_id)
-
-        if self.states[state_id][0] == False:
-            #print("Invalid state ID: ", state_id)
-            sterile_board, _ = self.get_state()
-            return sterile_board, self.next_stoneID, self.score, self.gameover
-
-        state = self.states[state_id]
-
-        # state is (possibility, stone, (x, y)) where possiblity is a bool, and rotation is stored in stone 2D list
-        self.stone_slice = state[1]
-        self.stone_offset = state[2]
-        self.drop(True)
+        self.new_stone()
 
         if self.gui:
             self.update_board()
 
-        sterile_board, _ = self.get_state()
-        return sterile_board, self.next_stoneID, self.score, self.gameover
-    
-    def get_state(self):
+        return self.getFinalStates(), self.gameover, self.score
 
-        # Convert to 1s and 2s
-        sterile_board = np.where(self.board != 0, 1, 0)
-        sterile_stone = np.where(self.stone_slice != 0, 2, 0)
-
-        # Add converted stone to board
-        sterile_board[self.stone_offset+BUFFER_SIZE:self.stone_offset+BUFFER_SIZE+sterile_stone.shape[0], :] += sterile_stone
-
-        sterile_board = sterile_board[BUFFER_SIZE:-BUFFER_SIZE]        
-
-        return sterile_board, self.next_stoneID
+    def quit_game(self):
+        pygame.quit()
 
 def print_board(board):
     sys.stdout.write('\033[F' * len(board))  # Move cursor up to overwrite previous lines
@@ -328,39 +330,45 @@ def print_board(board):
 
 if __name__ == "__main__":
 
-    profiler = cProfile.Profile()
-    profiler.enable()
+    selection = None
+    profile = False
+
+    if profile:
+        profiler = cProfile.Profile()
+        profiler.enable()
 
     App = TetrisApp()
 
     App.update_board()
 
-    #print("\n"*ROWS)
+    options = App.getFinalStates()
+    print(len(options))
+    choice = int(len(options) / 2)
 
     while not App.gameover:
+        while True:
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_UP:
+                        options, _, _ = App.ai_command(options[choice])
+                        choice = int(len(options) / 2)
+                    elif event.key == pygame.K_LEFT:
+                        choice = max(0, choice - 1)
+                        App.update_board(options[choice][0])
+                    elif event.key == pygame.K_RIGHT:
+                        choice = min(choice + 1, len(options) - 1)
+                        App.update_board(options[choice][0])
+                    elif event.key == pygame.K_ESCAPE:
+                        sys.exit()
+
+            pygame.key.set_repeat()
         
-        mask = App.get_possible_states()
-        keys = np.where(mask == 1)[0]
-        print(keys)
-        
-        val = input("Enter selection: ")
-        if val == " ":
-            App.quit()
-            break
-
-        if len(val) <= 2 and val.isdigit():
-            val = int(val)
-        else:
-            print("Invalid input. Please enter a 2-digit number.")
-
-        board, piece, score, gameover = App.ai_command(val)
-
-        print(np.array(board))
-
-        #print_board(board)
-
-    profiler.disable()
-    profiler.dump_stats("./step-tetris/profile_data.prof")
-    stats_file = "./step-tetris/profile_data.prof"
-    directory = './step-tetris/'
-    utils.filter_methods(stats_file, directory)
+    if profile:
+        profiler.disable()
+        profiler.dump_stats("./place-tetris/profile_data.prof")
+        stats_file = "./place-tetris/profile_data.prof"
+        directory = './place-tetris/'
+        utils.filter_methods(stats_file, directory)
