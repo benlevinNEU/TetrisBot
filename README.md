@@ -14,21 +14,16 @@ conda activate tetris
 
 To run step_tetris run the following command:
 ```bash
-python ./open-tetris/step_tetris.py
+python ./place-tetris/place_tetris.py
 ```
 
 To run the tetris training run the following command:
 ```bash
-python ./open-tetris/ai.py
+python ./place-tetris/ai.py
 ```
 Make sure to push new generations to git when you are done training. If you want to leave your computer running, you can push at any time because the networks are saved continuously.
 
-To run the fake ai tetris visualizer run the following command:
+To run a specific ai model, edit the file to define your weights and run the following command:
 ```bash
-python ./open-tetris/fake-ai.py -n <number of games>
-```
-
-To run the Tetris bomber run the following command:
-```bash
-python ./open-tetris/tetris-bomb_DONT_RUN.py
+python ./place-tetris/test-model.py
 ```
