@@ -1,5 +1,3 @@
-import torch
-import torch.nn as nn
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 import os, sys, re, copy, time
@@ -33,7 +31,7 @@ from evals import *
 
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
-MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+#MAX_WORKERS = 1 # TODO: Remove this line to use all cores
 PROF_DIR = "./place-tetris/profiler/"
 
 class Model():
@@ -56,6 +54,10 @@ class Model():
             best_option = None
 
             for option in options:
+
+                if option is None:
+                    raise ValueError("Option is None")
+
                 c = self.cost(option)
                 if c < min_cost:
                     min_cost = c
@@ -86,7 +88,7 @@ class Model():
 
             for i in range(len(new_weights)):
                 if np.random.rand() < mutation_rate:
-                    new_weights[i] += mutation_strength * np.random.randn()
+                    new_weights[i] += mutation_strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
             children.append(Model(new_weights))
 
@@ -114,7 +116,7 @@ class Model():
         for _ in range(plays):
             scores.append(self.play(gp, pos))
 
-        results_list.append((index, np.mean(scores)))
+        results_list.append((self.weights, np.mean(scores)))
 
         if profile[0]:
             profiler.disable()
@@ -171,7 +173,7 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
     results = list(results_list)
     return results
 
-def mutate_next_gen(top_models, population_size, mutation_rate=0.01, mutation_strength=0.1, profile=(False, 0)):
+def mutate_next_gen(top_models_weights, population_size, mutation_rate=0.01, mutation_strength=0.01, profile=(False, 0)):
     next_generation = []
 
     manager = multiprocessing.Manager()
@@ -180,40 +182,39 @@ def mutate_next_gen(top_models, population_size, mutation_rate=0.01, mutation_st
 
     processes = []
 
-    nchildren = int(population_size / len(top_models))
+    nchildren = int(population_size / top_models_weights.shape[0])
 
     count = 0
-    for model in top_models:
-        for _ in range(nchildren):
-            count += 1
+    for weights in top_models_weights:
+        model = Model(weights)
+        count += 1
 
-            if len(processes) >= MAX_WORKERS:
-                # Continuously check if any process has finished
-                while True:
-                    # Check each process in the list
-                    for p in processes:
-                        if not p.is_alive():
-                            processes.remove(p)
+        if len(processes) >= MAX_WORKERS:
+            # Continuously check if any process has finished
+            while True:
+                # Check each process in the list
+                for p in processes:
+                    if not p.is_alive():
+                        processes.remove(p)
 
-                    # Break the loop if we are under the max_workers limit
-                    if len(processes) < MAX_WORKERS:
-                        break
-                    # Avoid tight loop with a short sleep
-                    time.sleep(0.001)
+                # Break the loop if we are under the max_workers limit
+                if len(processes) < MAX_WORKERS:
+                    break
+                # Avoid tight loop with a short sleep
+                time.sleep(0.001)
 
-            new_net = copy.deepcopy(model)
-            if MAX_WORKERS > 1:
-                args = (count, new_net, mutation_rate, mutation_strength, models, nchildren, profile)
-                p = multiprocessing.Process(target=model.mutate, args=(args,))
-                p.start()
-                processes.append(p)
-            else:
-                model.mutate((count, mutation_rate, mutation_strength, models, nchildren (False, 0)))
+        if MAX_WORKERS > 1:
+            args = (count, mutation_rate, mutation_strength, models, nchildren, profile)
+            p = multiprocessing.Process(target=model.mutate, args=(args,))
+            p.start()
+            processes.append(p)
+        else:
+            model.mutate((count, mutation_rate, mutation_strength, models, nchildren, (False, 0)))
 
-            # Simple progress bar
-            progress = int((count) / population_size * 100)
-            sys.stdout.write(f"\rMutating: {progress}%")
-            sys.stdout.flush()
+        # Simple progress bar
+        progress = int((count) / population_size * 100)
+        sys.stdout.write(f"\rMutating: {progress}%")
+        sys.stdout.flush()
 
     # Wait for all remaining processes to complete
     for p in processes:
@@ -222,7 +223,7 @@ def mutate_next_gen(top_models, population_size, mutation_rate=0.01, mutation_st
     sys.stdout.write(f"\r")
     sys.stdout.flush()
 
-    next_generation = list(models)
+    next_generation = np.array(list(models)).flatten().tolist()
     return next_generation
 
 def main(stdscr):
@@ -239,33 +240,48 @@ def main(stdscr):
     multiprocessing.set_start_method('spawn')
 
     # Parameters for the evolutionary process
-    population_size = 50
-    top_n = 8
-    generations = 10000
-    plays = 3  # Number of games to play for each network each generation
+    population_size = 60
+    top_n = 5
+    generations = 1000
+    plays = 2  # Number of games to play for each model each generation
 
     # Initialize the game
     game_params = {
         "gui": False,  # Set to True to visualize the game
         "cell_size": 20,
-        "cols": COLS,
-        "rows": ROWS,
+        "cols": 8,
+        "rows": 12,
         "window_pos": (0, 0)
     }
 
     print("Starting Evolutionary Training")
-    #print("\n\n\n\n\n\n\n")
 
-    networks_dir = "./place-tetris/networks/"
-    top_networks_info = utils.find_top_networks(networks_dir, top_n)
-    population = [Model() for _ in range(population_size)] 
-    '''if len(top_networks_info) == 0:
+    models_dir = "./place-tetris/models/"
+    population = [Model() for _ in range(population_size)]
+    file_name = f"models_{game_params['rows']}x{game_params['cols']}.npy"
+    print(f"Saving data to: {models_dir}{file_name}")
+
+    def prev_data_exists(model_dir):
+        for fn in os.listdir(model_dir):
+            if fn == file_name:
+                return True
+        return False
+
+    exists = prev_data_exists(models_dir)
+
+    if not exists:
         # Initialize population with custom initialization
-        population = [Model() for _ in range(population_size)]
+        population = Model().mutate((0, 0.1, 0.01, [], population_size, (False, tid)))
+        models_info = None
     else:
-        # Load the top M networks from the file
-        top_networks = [utils.load_(path, weights) for _, path in top_networks_info]
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.2, mutation_strength=0.1)'''
+        # Load the latest generation as an array
+        models_data_file = os.path.join(models_dir, file_name)
+        models_info = np.load(models_data_file)
+
+        # Extract the weights of the top networks
+        top_models_weights = models_info[:top_n, 2:]
+        
+        population = mutate_next_gen(top_models_weights, population_size, mutation_rate=0.1, mutation_strength=0.01)
 
     exit = False
 
@@ -286,31 +302,44 @@ def main(stdscr):
         stdscr.keypad(True)  # Enable special keys to be recorded
         curses.noecho()  # Prevent input from being echoed to the screen
         stdscr.nodelay(True)  # Make getch() non-blocking
-        
+
+    if models_info is not None:
+        latest_generation = int(np.max(models_info[:, 1]))
+    else:
+        latest_generation = 0
+
     #for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
-    for generation in range(0 + 1, generations):
+    for generation in range(latest_generation + 1, generations):
 
         # Evaluate all networks in parallel
         results = evaluate_population(population, plays, game_params, (profile, tid))
 
-        # Convert results to a list and sort by the score
-        results = sorted(results, key=lambda x: x[1], reverse=True)  # Now sorting the list of results
+        # Unpack the results and create a numpy array with score in the first column and weights after it
+        data = np.array([(score,generation) + tuple(weights) for weights, score in results])
 
         # Select top performers
-        top_performers = results[:top_n]
-
-        #utils.save_networks(networks_dir, [(population[index], score) for index, score in top_performers], generation)
+        top_performers = data[data[:, 0].argsort()[::-1]]
 
         # Print generation info
-        #sys.stdout.write(f'\033[{population_size+1}B')
-        #sys.stdout.flush()
-        print(f"Generation {generation}: Top Score = {top_performers[0][1]}")
-        #print("\n\n\n\n\n")
+        print(f"Generation {generation}: Top Score = {top_performers[0,0]}")
+
+        # Save the numpy array to the file
+        if not os.path.exists(models_dir):
+            os.makedirs(models_dir)
+        save_file = os.path.join(models_dir, file_name)
+        if prev_data_exists(models_dir):
+            models_info = np.load(save_file)
+
+        if models_info is not None:
+            data = np.vstack([models_info, data])
+        data = data[data[:, 0].argsort()[::-1]]
+
+        np.save(save_file, data)
 
         # Extract the networks of the top performers
-        top_networks = [population[index] for index, _ in top_performers]
+        top_models_weights = data[:top_n, 2:]
 
-        population = mutate_next_gen(top_networks, population_size, mutation_rate=0.1, mutation_strength=0.01, profile=(profile, tid))
+        population = mutate_next_gen(top_models_weights, population_size, mutation_rate=0.2, mutation_strength=0.002, profile=(profile, tid))
 
         if pltfm == 'WSL':
             # Non-blocking check for input

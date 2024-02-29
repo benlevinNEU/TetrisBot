@@ -74,7 +74,7 @@ def getHeightParams(board):
     for col in range(1, board.shape[1]):
         if h1 > 0:
             # Subtract 1 to make sure holes doesn't get false positive
-            mt_lcols = min(col-1, mt_lcols)
+            mt_lcols = min(col-2, mt_lcols)
             mt_rcols = max(board.shape[1] - col - 1, 0)
 
         if h1 > max_height:
@@ -88,16 +88,20 @@ def getHeightParams(board):
 
         height_sum += h1
 
+    if h2 > max_height:
+        max_height = h2
+
     mt_lcols = max(mt_lcols, 0)
 
     start_index = max(board.shape[0]-max_height-1, 0)
 
     if board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols].shape[0] < 2:
         pass
+    
+    # Impliment board trimming later
+    #trimmed_board = board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols]
 
-    trimmed_board = board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols]
-
-    return bmps, max_height, height_sum/board.shape[1], trimmed_board
+    return bmps, max_height, height_sum/board.shape[1], board #trimmed_board
 
 def dfs(matrix, x, y, visited, value, fill=0):
 
@@ -119,9 +123,6 @@ def dfs(matrix, x, y, visited, value, fill=0):
 
 def getHoles(board):
 
-    if board.size == 0:
-        return 0
-
     visited = np.ones_like(board, dtype=bool)*-1
     visited[board == 1] = 0
 
@@ -137,6 +138,8 @@ def getHoles(board):
                     island_count += 1
 
     board += visited
+
+    # TODO: Make sure not nonetypes
 
     return island_count, board
 
@@ -175,11 +178,13 @@ def getEvals(state):
 
     board, _ = state
 
+    board = board.copy()
     board[board > 0] = 1
 
     points = getPointsForMove(state)
 
     bmps, max_height, avg_height, board = getHeightParams(board) # Outputs trimmed board
+
     holes, board = getHoles(board)  # Outputs board with holes plugged with 2's
     overhangs = getOverhangs(board)
 

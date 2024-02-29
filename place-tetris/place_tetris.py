@@ -63,7 +63,6 @@ class TetrisApp(object):
         # events, so we
         # block them.
         self.next_stoneID = rand(len(tetris_shapes))
-        #self.next_stoneID = 5 # TODO: remove this line
         self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
         self.gameover = False
@@ -82,7 +81,6 @@ class TetrisApp(object):
 
         return new_board
     
-    
     def new_board(self):
         board = np.zeros((self.rows, self.cols), dtype=int)
 
@@ -100,7 +98,6 @@ class TetrisApp(object):
         self.stone = self.next_stone[:]
 
         self.next_stoneID = rand(len(tetris_shapes))
-        #self.next_stoneID = 5 # TODO: remove this line
         self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
         self.stone_x = int((self.board.shape[1] - 2 * BUFFER_SIZE) / 2 - len(self.stone[0]) / 2)
@@ -237,19 +234,19 @@ class TetrisApp(object):
             current_stone, current_x, current_y, steps = queue.pop(0)  # Dequeue an element
             for i, action in enumerate(actions):
                 new_stone, new_x, new_y = action(current_stone, current_x, current_y)
-                if self.is_valid_state(new_stone, new_x, new_y):  # Assuming this function exists and checks if the move is valid
-                    valid, touching_bottom = self.is_valid_state(new_stone, new_x, new_y)
-                    if valid:
-                        state_key = (tuple(map(tuple, new_stone)), new_x, new_y)  # Convert to a hashable state
-                        if state_key not in visited_states:
-                            visited_states.add(state_key)
-                            if touching_bottom:
-                                new_board = current_board.copy()
-                                new_board[BUFFER_SIZE+new_y:BUFFER_SIZE+new_y+new_stone.shape[0], 
-                                          BUFFER_SIZE+new_x:BUFFER_SIZE+new_x+new_stone.shape[1]] += new_stone
-                                final_boards.append((self.trimBoard(new_board), steps + [i]))  # Store the potential final board state and steps to get there
-                                
-                            queue.append((new_stone, new_x, new_y, steps + [i]))  # Enqueue new state
+                valid, touching_bottom = self.is_valid_state(new_stone, new_x, new_y) # Assuming this function exists and checks if the move is valid
+                if valid:
+                    state_key = (tuple(map(tuple, new_stone)), new_x, new_y)  # Convert to a hashable state
+                    if state_key not in visited_states:
+                        visited_states.add(state_key)
+                        if touching_bottom:
+                            new_board = current_board.copy()
+                            new_board[BUFFER_SIZE+new_y:BUFFER_SIZE+new_y+new_stone.shape[0], 
+                                      BUFFER_SIZE+new_x:BUFFER_SIZE+new_x+new_stone.shape[1]] += new_stone
+
+                            final_boards.append((self.trimBoard(new_board), steps + [i]))  # Store the potential final board state and steps to get there
+                            
+                        queue.append((new_stone, new_x, new_y, steps + [i]))  # Enqueue new state
 
         return final_boards
 
@@ -274,9 +271,14 @@ class TetrisApp(object):
         try:
             board[BUFFER_SIZE+y:BUFFER_SIZE+y+stone.shape[0], 
                   BUFFER_SIZE+x:BUFFER_SIZE+x+stone.shape[1]] += stone
-        except ValueError:
+        except ValueError as e: # TODO: Remove
+            print(e)
             print(board)
             print(stone)
+
+        
+        if np.sum(np.all(board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] != 0, axis=1) * np.all(board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] != 3, axis=1)) > 4: # TODO: Remove
+            pass
 
         if np.any(board == 2):
             return False, False
@@ -294,23 +296,26 @@ class TetrisApp(object):
             for action in actions_:
                 self.stone, self.stone_x, self.stone_y = actions[action](self.stone, self.stone_x, self.stone_y)
                 self.update_board()
-                pygame.time.wait(5)
+                pygame.time.wait(10)
 
             self.board[BUFFER_SIZE+self.stone_y:BUFFER_SIZE+self.stone_y+self.stone.shape[0],
                        BUFFER_SIZE+self.stone_x:BUFFER_SIZE+self.stone_x+self.stone.shape[1]] += self.stone
 
         else:
+            old_board = self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE].copy() # TODO: Remove
             self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = board
 
         cleared_rows = 0
-        while True:
-            for i, row in enumerate(self.board[BUFFER_SIZE:-BUFFER_SIZE]):
-                if 0 not in row:
-                    self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = self.remove_row(self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE], i)
-                    cleared_rows += 1
-                    break
-            else:
-                break
+        chosen_board = self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE].copy() # TODO: Remove
+        for i, row in enumerate(self.board[BUFFER_SIZE:-BUFFER_SIZE]):
+            if 0 not in row:
+                self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = self.remove_row(self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE], i)
+                cleared_rows += 1
+
+        if cleared_rows > 4: # TODO: Remove
+            #print(chosen_board)
+            pass
+
         self.add_cl_lines(cleared_rows)
 
         self.new_stone()
