@@ -24,15 +24,16 @@ if parent_dir not in sys.path:
 # Get the current directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-
-# Initialize the game parameters
-gp = {
-    "gui": True,  # Set to True to visualize the game
+from local_params import gp, tp
+# Initialize the game and training parameters in "local_params.py" (Use the following as example)
+# **DO NOT COMMIT YOUR PARAMS TO GIT**
+'''gp = {
+    "gui": False,  # Set to True to visualize the game
     "cell_size": 20,
     "cols": 8,
     "rows": 12,
     "window_pos": (0, 0),
-    "sleep": 1
+    "sleep": 0.01
 }
 
 # Initialize the training parameters
@@ -44,11 +45,11 @@ tp = {
     "mutation_rate": lambda gen: 0.8 * np.exp(-0.001 * gen) + 0.1,
     "mutation_strength": lambda gen: 5 * np.exp(-0.001 * gen) + 0.1,
     "profile": True,
-}
+}'''
 
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
-MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+#MAX_WORKERS = 1 # TODO: Remove this line to use all cores
 PROF_DIR = os.path.join(current_dir, "profiler/")
 MODELS_DIR = os.path.join(current_dir, "models/")
 
