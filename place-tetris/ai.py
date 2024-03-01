@@ -147,6 +147,11 @@ class Model():
             t = int(time.time())
             profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
 
+def worker_func(args):
+
+    model, index, plays, gp, results_list, slot, profile = args
+    model.evaluate((index, plays, gp, results_list, slot, profile))
+
 # TODO: Modify function create create percistent threads and create a pool of tasks that they pull from
 def evaluate_population(population, plays, game_params, profile=(False, 0)):
     manager = multiprocessing.Manager()

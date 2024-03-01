@@ -1,24 +1,34 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import time
+import time, os
 
-file = './place-tetris/models/models_12x8.npy'
+# Get correct path to the models data file for current local params setup
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
+from local_params import GP, TP
+nft = TP["feature_transform"](0).shape[0] # Number of fe transforms
+file_name = f"models_{GP['rows']}x{GP['cols']}_{nft}.npy"
+models_data_file = os.path.join(MODELS_DIR, file_name)
 
-# Prepare the plot outside the function to avoid creating new windows
-plt.ion()  # Turn on interactive mode
-fig, ax = plt.subplots(figsize=(12, 8))
-lines = {
-    "best_score": ax.plot([], [], label='Best Score', linestyle='-', color='green')[0],
-    "average_top5": ax.plot([], [], label='Average Score of Top 5 Models', linestyle='-', color='blue')[0],
-    "best_score_in_gen": ax.plot([], [], label='Best Score In Gen', linestyle='-', color='orange')[0],
-    "average_score_in_gen": ax.plot([], [], label='Average Score in Gen', linestyle='-', color='red')[0]
-}
 
-ax.set_title('Model Performance Over Generations')
-ax.set_xlabel('Generation')
-ax.set_ylabel('Score')
-ax.legend()
-ax.grid(True)
+def init_plot():
+    # Prepare the plot outside the function to avoid creating new windows
+    plt.ion()  # Turn on interactive mode
+    fig, ax = plt.subplots(figsize=(12, 8))
+    lines = {
+        "best_score": ax.plot([], [], label='Best Score', linestyle='-', color='green')[0],
+        "average_top5": ax.plot([], [], label='Average Score of Top 5 Models', linestyle='-', color='blue')[0],
+        "best_score_in_gen": ax.plot([], [], label='Best Score In Gen', linestyle='-', color='orange')[0],
+        "average_score_in_gen": ax.plot([], [], label='Average Score in Gen', linestyle='-', color='red')[0]
+    }
+
+    ax.set_title('Model Performance Over Generations')
+    ax.set_xlabel('Generation')
+    ax.set_ylabel('Score')
+    ax.legend()
+    ax.grid(True)
+
+    return fig, ax, lines
 
 def plot_model_performance(file, ax, lines):
     data = np.load(file, allow_pickle=True)[:, 1::-1]
@@ -61,8 +71,15 @@ def plot_model_performance(file, ax, lines):
     plt.pause(0.1)  # Pause to ensure the plot updates
 
 if __name__ == "__main__":
+
+    if not os.path.exists(models_data_file):
+        print(f"The following file does not exist: \n{models_data_file}")
+        exit(1)
+
+    fig, ax, lines = init_plot()
+
     while True:
-        plot_model_performance(file, ax, lines)
+        plot_model_performance(models_data_file, ax, lines)
         plt.pause(30)  # Pause for 30 seconds before updating again
 
         if not plt.fignum_exists(fig.number):

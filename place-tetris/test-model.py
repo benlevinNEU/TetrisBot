@@ -6,9 +6,9 @@ from evals import *
 # Initialize the game
 game_params = {
     "gui": True,  # Set to True to visualize the game
-    "cell_size": 20,
+    "cell_size": 15,
     "cols": 10,
-    "rows": 22,
+    "rows": 20,
     "window_pos": (0, 0),
     "sleep": 0.01
 }
