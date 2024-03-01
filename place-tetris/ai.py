@@ -31,11 +31,12 @@ from evals import *
 
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
-#MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+MAX_WORKERS = 5 # TODO: Remove this line to use all cores
 PROF_DIR = "./place-tetris/profiler/"
 
 class Model():
-    #def __init__(self, weights=np.random.rand(6)*2-1):
+    # TODO: Add support for weights for transformed data and biases
+    # TODO: Add support for random initialization of that cover input space better
     def __init__(self, weights=np.array([0.1, 0.4, 0.01, 0.2, 0.1, -0.2])):
         self.weights = weights
 
@@ -243,10 +244,10 @@ def main(stdscr):
     population_size = 60
     top_n = 5
     generations = 1000
-    plays = 2  # Number of games to play for each model each generation
+    plays = 5  # Number of games to play for each model each generation
 
-    # Initialize the game
-    game_params = {
+    # Initialize the game parameters
+    gp = {
         "gui": False,  # Set to True to visualize the game
         "cell_size": 20,
         "cols": 8,
@@ -254,11 +255,22 @@ def main(stdscr):
         "window_pos": (0, 0)
     }
 
+    # Initialize the training parameters
+    tp = {
+        "population_size": population_size,
+        "top_n": top_n,
+        "generations": generations,
+        "plays": plays,
+        "mutation_rate": 0.8,
+        "mutation_strength": 5,
+        "profile": profile,
+    }
+
     print("Starting Evolutionary Training")
 
     models_dir = "./place-tetris/models/"
     population = [Model() for _ in range(population_size)]
-    file_name = f"models_{game_params['rows']}x{game_params['cols']}.npy"
+    file_name = f"models_{gp['rows']}x{gp['cols']}.npy"
     print(f"Saving data to: {models_dir}{file_name}")
 
     def prev_data_exists(model_dir):
@@ -271,7 +283,7 @@ def main(stdscr):
 
     if not exists:
         # Initialize population with custom initialization
-        population = Model().mutate((0, 0.1, 0.01, [], population_size, (False, tid)))
+        population = Model().mutate((0, tp["mutation_rate"], tp['mutation_strength'], [], population_size, (False, tid)))
         models_info = None
     else:
         # Load the latest generation as an array
@@ -281,7 +293,7 @@ def main(stdscr):
         # Extract the weights of the top networks
         top_models_weights = models_info[:top_n, 2:]
         
-        population = mutate_next_gen(top_models_weights, population_size, mutation_rate=0.1, mutation_strength=0.01)
+        population = mutate_next_gen(top_models_weights, population_size, tp["mutation_rate"], tp['mutation_strength'])
 
     exit = False
 
@@ -312,7 +324,7 @@ def main(stdscr):
     for generation in range(latest_generation + 1, generations):
 
         # Evaluate all networks in parallel
-        results = evaluate_population(population, plays, game_params, (profile, tid))
+        results = evaluate_population(population, plays, gp, (profile, tid))
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         data = np.array([(score,generation) + tuple(weights) for weights, score in results])
@@ -339,7 +351,7 @@ def main(stdscr):
         # Extract the networks of the top performers
         top_models_weights = data[:top_n, 2:]
 
-        population = mutate_next_gen(top_models_weights, population_size, mutation_rate=0.2, mutation_strength=0.002, profile=(profile, tid))
+        population = mutate_next_gen(top_models_weights, population_size, tp["mutation_rate"], tp['mutation_strength'], profile=(profile, tid))
 
         if pltfm == 'WSL':
             # Non-blocking check for input

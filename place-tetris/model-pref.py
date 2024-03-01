@@ -9,7 +9,7 @@ data = np.load(file, allow_pickle=True)[:, 1::-1]
 data = data[data[:, 0].argsort()]
 
 generations = np.unique(data[:, 0]).astype(int).tolist()
-i_s = np.array([1000])
+i_s = np.array([0])
 init = np.vstack((i_s, np.zeros((len(generations), 1))))
 
 best_score = init.copy()
