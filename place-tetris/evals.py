@@ -139,8 +139,6 @@ def getHoles(board):
 
     board += visited
 
-    # TODO: Make sure not nonetypes
-
     return island_count, board
 
 def getOverhangs(board):

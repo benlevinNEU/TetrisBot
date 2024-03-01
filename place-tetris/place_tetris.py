@@ -272,10 +272,6 @@ class TetrisApp(object):
             print(board)
             print(stone)
 
-        
-        if np.sum(np.all(board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] != 0, axis=1) * np.all(board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] != 3, axis=1)) > 4: # TODO: Remove
-            pass
-
         if np.any(board == 2):
             return False, False
 

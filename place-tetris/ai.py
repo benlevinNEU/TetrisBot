@@ -42,7 +42,7 @@ tp = {
     "generations": 1000,
     "plays": 5,
     "mutation_rate": lambda gen: 0.8 * np.exp(-0.001 * gen) + 0.1,
-    "mutation_strength": lambda gen: 5 * np.exp(-0.001 * gen) + 0.1,
+    "mutation_strength": lambda gen: 10 * np.exp(-0.001 * gen) + 0.1,
     "profile": True,
     "workers": 0, # Use all available cores
     "feature_transform": lambda x: np.array([x**2, x, 1]),
@@ -147,6 +147,7 @@ class Model():
             t = int(time.time())
             profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
 
+# TODO: Modify function create create percistent threads and create a pool of tasks that they pull from
 def evaluate_population(population, plays, game_params, profile=(False, 0)):
     manager = multiprocessing.Manager()
     results_list = manager.list()  # Managed list for collecting results
@@ -341,7 +342,6 @@ def main(stdscr):
         # Print generation info
         print(f"Generation {generation}: Top Score = {top_performers[0,0]}")
 
-
         # Save the numpy array to the file
         if not os.path.exists(MODELS_DIR):
             os.makedirs(MODELS_DIR)
@@ -352,8 +352,8 @@ def main(stdscr):
         models_info = models_info[models_info[:, 0].argsort()[::-1]]
 
         np.save(save_file, models_info)
+        exists = True
         
-
         # Check for safe exit
         if pltfm == 'WSL':
             # Non-blocking check for input
