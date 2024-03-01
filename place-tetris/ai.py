@@ -27,7 +27,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 from local_params import gp, tp
 # Initialize the game and training parameters in "local_params.py" (Use the following as example)
 # **DO NOT COMMIT YOUR PARAMS TO GIT**
-'''gp = {
+'''
+import numpy as np
+gp = {
     "gui": False,  # Set to True to visualize the game
     "cell_size": 20,
     "cols": 8,
@@ -45,11 +47,12 @@ tp = {
     "mutation_rate": lambda gen: 0.8 * np.exp(-0.001 * gen) + 0.1,
     "mutation_strength": lambda gen: 5 * np.exp(-0.001 * gen) + 0.1,
     "profile": True,
-}'''
+    "workers": 0 # Use all available cores
+}
+'''
 
 # Use all execpt 1 of the available cores
-MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
-#MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+MAX_WORKERS = tp["workers"] if tp["workers"] > 0 else multiprocessing.cpu_count()
 PROF_DIR = os.path.join(current_dir, "profiler/")
 MODELS_DIR = os.path.join(current_dir, "models/")
 
