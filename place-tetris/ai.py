@@ -21,7 +21,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from local_params import gp, tp
+from local_params import GP, TP
 # Initialize the game and training parameters in "local_params.py" (Use the following as example)
 # **DO NOT COMMIT YOUR PARAMS TO GIT**
 '''
@@ -49,7 +49,7 @@ tp = {
 }
 '''
 
-MAX_WORKERS = tp["workers"] if tp["workers"] > 0 else multiprocessing.cpu_count()
+MAX_WORKERS = TP["workers"] if TP["workers"] > 0 else multiprocessing.cpu_count()
 
 # Get the current directory
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -57,12 +57,12 @@ PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
-    def __init__(self, tp=tp, weights=[]):
+    def __init__(self, tp=TP, weights=[]):
         if len(weights) == 0:
             weights = np.ones(tp["feature_transform"](0).shape[0]*NUM_EVALS)
         self.weights = weights.reshape(tp["feature_transform"](0).shape[0], NUM_EVALS)
 
-    def play(self, gp, pos):
+    def play(self, gp, pos, tp=TP):
         self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
         
         if gp["gui"]:
@@ -81,7 +81,7 @@ class Model():
                 if option is None:
                     raise ValueError("Option is None")
 
-                c = self.cost(option)
+                c = self.cost(option, tp)
                 if c < min_cost:
                     min_cost = c
                     best_option = option
@@ -91,10 +91,10 @@ class Model():
         self.game.quit_game()
         return score
 
-    def cost(self, state):
+    def cost(self, state, tp):
         vals = np.array(getEvals(state))
         X = np.array([tp["feature_transform"](x) for x in vals])
-        return np.sum(np.dot(X, self.weights))
+        return np.sum(X.T @ self.weights.T)
 
     def mutate(self, args):
 
@@ -105,16 +105,16 @@ class Model():
             profiler.enable()
         
         children = []
-        nchildren = int(tp["population_size"] / tp["top_n"])
+        nchildren = int(TP["population_size"] / TP["top_n"])
 
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
             for i in range(len(new_weights)):
-                if np.random.rand() < tp["mutation_rate"](gen):
-                    new_weights[i] += tp["mutation_strength"](gen) * (np.random.randn()*2 - 1) # Can increase or decrease weights
+                if np.random.rand() < TP["mutation_rate"](gen):
+                    new_weights[i] += TP["mutation_strength"](gen) * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
-            children.append(Model(tp, new_weights))
+            children.append(Model(TP, new_weights))
 
         if profile[0]:
             profiler.disable()
@@ -251,7 +251,7 @@ def mutate_next_gen(top_models_weights, tp, profile=(False, 0), gen=0):
 def main(stdscr):
 
     ## General Setup
-    profile = tp["profile"]
+    profile = TP["profile"]
     tid = int(time.time())
 
     if profile: os.makedirs(f"{PROF_DIR}{tid}")
@@ -287,8 +287,8 @@ def main(stdscr):
 
 
     ## Load or Initialize Population
-    nft = tp["feature_transform"](0).shape[0] # Number of fe transforms
-    file_name = f"models_{gp['rows']}x{gp['cols']}_{nft}.npy"
+    nft = TP["feature_transform"](0).shape[0] # Number of fe transforms
+    file_name = f"models_{GP['rows']}x{GP['cols']}_{nft}.npy"
     print(f"Saving data to: {MODELS_DIR}{file_name}")
 
     def prev_data_exists(model_dir):
@@ -301,7 +301,7 @@ def main(stdscr):
 
     if not exists:
         # Initialize population with custom initialization
-        init_tp = tp.copy()
+        init_tp = TP.copy()
         init_tp["top_n"] = 1
         population = Model(tp=init_tp).mutate((0, [], 0, (False, tid)))
         models_info = None
@@ -314,11 +314,11 @@ def main(stdscr):
         latest_generation = int(np.max(models_info[:, 1]))
 
     #for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
-    for generation in range(latest_generation + 1, tp["generations"]):
+    for generation in range(latest_generation + 1, TP["generations"]):
 
         if models_info is None:
             # Evaluate all networks in parallel
-            results = evaluate_population(population, tp["plays"], gp, (profile, tid))
+            results = evaluate_population(population, TP["plays"], GP, (profile, tid))
 
             # Unpack the results and create a numpy array with score in the first column and weights after it
             models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
@@ -326,12 +326,12 @@ def main(stdscr):
             # Select top performers
             models_info = models_info[models_info[:, 0].argsort()[::-1]]
             
-        top_models_weights = models_info[:tp["top_n"], 2:]
+        top_models_weights = models_info[:TP["top_n"], 2:]
 
-        population = mutate_next_gen(top_models_weights, tp, profile=(profile, tid), gen=generation)
+        population = mutate_next_gen(top_models_weights, TP, profile=(profile, tid), gen=generation)
 
         # Evaluate all networks in parallel
-        results = evaluate_population(population, tp["plays"], gp, (profile, tid))
+        results = evaluate_population(population, TP["plays"], GP, (profile, tid))
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
