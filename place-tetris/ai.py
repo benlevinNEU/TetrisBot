@@ -1,5 +1,5 @@
 import numpy as np
-import os, sys, time, cProfile, multiprocessing, platform
+import os, sys, time, cProfile, multiprocessing, platform, re
 from place_tetris import TetrisApp, COLS, ROWS
 
 import utils
@@ -20,9 +20,6 @@ else:
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
-
-# Get the current directory
-current_dir = os.path.dirname(os.path.abspath(__file__))
 
 from local_params import gp, tp
 # Initialize the game and training parameters in "local_params.py" (Use the following as example)
@@ -47,20 +44,23 @@ tp = {
     "mutation_rate": lambda gen: 0.8 * np.exp(-0.001 * gen) + 0.1,
     "mutation_strength": lambda gen: 5 * np.exp(-0.001 * gen) + 0.1,
     "profile": True,
-    "workers": 0 # Use all available cores
+    "workers": 0, # Use all available cores
+    "feature_transform": lambda x: np.array([x**2, x, 1]),
 }
 '''
 
-# Use all execpt 1 of the available cores
 MAX_WORKERS = tp["workers"] if tp["workers"] > 0 else multiprocessing.cpu_count()
-PROF_DIR = os.path.join(current_dir, "profiler/")
-MODELS_DIR = os.path.join(current_dir, "models/")
+
+# Get the current directory
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
+MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
-    # TODO: Add support for weights for transformed data and biases
-    # TODO: Add support for random initialization of that cover input space better
-    def __init__(self, weights=np.array([0.1, 0.4, 0.01, 0.2, 0.1, -0.2])):
-        self.weights = weights
+    def __init__(self, tp=tp, weights=[]):
+        if len(weights) == 0:
+            weights = np.ones(tp["feature_transform"](0).shape[0]*NUM_EVALS)
+        self.weights = weights.reshape(tp["feature_transform"](0).shape[0], NUM_EVALS)
 
     def play(self, gp, pos):
         self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
@@ -92,28 +92,29 @@ class Model():
         return score
 
     def cost(self, state):
-
-        vals = getEvals(state)
-        return np.dot(self.weights, np.array(vals))
+        vals = np.array(getEvals(state))
+        X = np.array([tp["feature_transform"](x) for x in vals])
+        return np.sum(np.dot(X, self.weights))
 
     def mutate(self, args):
 
-        index, mutation_rate, mutation_strength, models, nchildren, profile = args
+        index, models, gen, profile = args
 
         if profile[0]:
             profiler = cProfile.Profile()
             profiler.enable()
         
         children = []
+        nchildren = int(tp["population_size"] / tp["top_n"])
 
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
             for i in range(len(new_weights)):
-                if np.random.rand() < mutation_rate:
-                    new_weights[i] += mutation_strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
+                if np.random.rand() < tp["mutation_rate"](gen):
+                    new_weights[i] += tp["mutation_strength"](gen) * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
-            children.append(Model(new_weights))
+            children.append(Model(tp, new_weights))
 
         if profile[0]:
             profiler.disable()
@@ -139,7 +140,7 @@ class Model():
         for _ in range(plays):
             scores.append(self.play(gp, pos))
 
-        results_list.append((self.weights, np.mean(scores)))
+        results_list.append((self.weights.flatten(), np.mean(scores)))
 
         if profile[0]:
             profiler.disable()
@@ -200,16 +201,13 @@ def mutate_next_gen(top_models_weights, tp, profile=(False, 0), gen=0):
     next_generation = []
 
     manager = multiprocessing.Manager()
-    lock = manager.Lock()
     models = manager.list()  # Managed list for collecting results
 
     processes = []
 
-    nchildren = int(tp["population_size"] / top_models_weights.shape[0])
-
     count = 0
     for weights in top_models_weights:
-        model = Model(weights)
+        model = Model(tp, weights)
         count += 1
 
         if len(processes) >= MAX_WORKERS:
@@ -227,12 +225,12 @@ def mutate_next_gen(top_models_weights, tp, profile=(False, 0), gen=0):
                 time.sleep(0.001)
 
         if MAX_WORKERS > 1:
-            args = (count, tp["mutation_rate"](gen), tp["mutation_strength"](gen), models, nchildren, profile)
+            args = (count, models, gen, profile)
             p = multiprocessing.Process(target=model.mutate, args=(args,))
             p.start()
             processes.append(p)
         else:
-            model.mutate((count, tp["mutation_rate"](gen), tp["mutation_strength"](gen), models, nchildren, (False, 0)))
+            model.mutate((count, models, gen, (False, 0)))
 
         # Simple progress bar
         progress = int((count) / tp["population_size"] * 100)
@@ -288,8 +286,8 @@ def main(stdscr):
 
 
     ## Load or Initialize Population
-    population = [Model() for _ in range(tp["population_size"])]
-    file_name = f"models_{gp['rows']}x{gp['cols']}.npy"
+    nft = tp["feature_transform"](0).shape[0] # Number of fe transforms
+    file_name = f"models_{gp['rows']}x{gp['cols']}_{nft}.npy"
     print(f"Saving data to: {MODELS_DIR}{file_name}")
 
     def prev_data_exists(model_dir):
@@ -302,7 +300,9 @@ def main(stdscr):
 
     if not exists:
         # Initialize population with custom initialization
-        population = Model().mutate((0, tp, [], (False, tid)))
+        init_tp = tp.copy()
+        init_tp["top_n"] = 1
+        population = Model(tp=init_tp).mutate((0, [], 0, (False, tid)))
         models_info = None
         latest_generation = 0
         
@@ -315,7 +315,16 @@ def main(stdscr):
     #for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
     for generation in range(latest_generation + 1, tp["generations"]):
 
-        # Extract the networks of the top performers
+        if models_info is None:
+            # Evaluate all networks in parallel
+            results = evaluate_population(population, tp["plays"], gp, (profile, tid))
+
+            # Unpack the results and create a numpy array with score in the first column and weights after it
+            models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
+
+            # Select top performers
+            models_info = models_info[models_info[:, 0].argsort()[::-1]]
+            
         top_models_weights = models_info[:tp["top_n"], 2:]
 
         population = mutate_next_gen(top_models_weights, tp, profile=(profile, tid), gen=generation)
@@ -369,7 +378,7 @@ def main(stdscr):
         profiler_dir = f"{PROF_DIR}{tid}"
 
         p = utils.merge_profile_stats(profiler_dir)
-        print_stats(utils.filter_methods(p, current_dir).strip_dirs().sort_stats('tottime'))
+        print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))
         print_stats(p.strip_dirs().sort_stats('tottime'), 30)
 
 if __name__ == "__main__":

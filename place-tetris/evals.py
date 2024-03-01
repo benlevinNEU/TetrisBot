@@ -171,6 +171,7 @@ def getPointsForMove(state):
 
     return drops + cl_pnts
 
+NUM_EVALS = 6
 def getEvals(state):
 
     board, _ = state

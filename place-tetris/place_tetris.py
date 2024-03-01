@@ -27,6 +27,11 @@ else:
 
 BUFFER_SIZE = 4
 
+# Get the current directory
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
+MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
+
 actions = [
     lambda stone, x, y: (stone, x + 1, y),
     lambda stone, x, y: (stone, x - 1, y),
@@ -242,8 +247,7 @@ class TetrisApp(object):
 
         return final_boards
 
-    # Determines if this state is possible 
-    # Also returns if stone touching bottom
+    # Determines if this state is possible and returns if stone touching bottom
     # VERY PROUD OF HOW BEAUTIFUL THIS METHOD IS
     def is_valid_state(self, stone, x, y):
     
@@ -297,6 +301,7 @@ class TetrisApp(object):
             self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = board
 
         cleared_rows = np.sum(np.all(board != 0, axis=1))
+
         # Remove rows without zeros and add zeros at the top
         self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), 
                                                                                     board[~np.all(board != 0, axis=1)]))
@@ -323,11 +328,7 @@ if __name__ == "__main__":
     selection = None
     profile = False
 
-    if profile:
-        profiler = cProfile.Profile()
-        profiler.enable()
-
-    App = TetrisApp()
+    App = TetrisApp(sleep=0.1, gui=True)
 
     App.update_board()
 
@@ -355,10 +356,3 @@ if __name__ == "__main__":
                         sys.exit()
 
             pygame.key.set_repeat()
-        
-    if profile:
-        profiler.disable()
-        profiler.dump_stats("./place-tetris/profile_data.prof")
-        stats_file = "./place-tetris/profile_data.prof"
-        directory = './place-tetris/'
-        utils.filter_methods(stats_file, directory)
