@@ -17,7 +17,7 @@ game_params = {
     "window_pos": (0, 0)
 }
 
-weights = np.array([0.1, 0.4, 0.01, 0.2, 0.1, -0.2])
+weights = np.array([3.9304998446226453, 0.6278212056361121, 30.518039583961556, 34.5815676211182, 27.326096925153074, -3.208231649499382])
 
 model = Model(weights)
 score = model.play(game_params, (0,0))
