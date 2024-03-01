@@ -36,8 +36,9 @@ actions = [
 ]
 
 class TetrisApp(object):
-    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, window_pos=(0, 0)):
+    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, sleep=0.01, window_pos=(0, 0)):
         self.gui = gui
+        self.sleep = sleep
 
         if gui:
             os.environ['SDL_VIDEO_WINDOW_POS'] = '{},{}'.format(window_pos[0], window_pos[1])  # Set window position to '0
@@ -71,15 +72,6 @@ class TetrisApp(object):
 
         self.states = {}
         self.init_game()
-
-    def remove_row(self, board, row):
-        # Concatenate the new row with all rows except the one to remove
-        new_board = np.vstack((np.zeros((1, self.cols), dtype=int), np.delete(board, obj=row, axis=0)))
-
-        if new_board.shape != (self.rows, self.cols):
-            pass
-
-        return new_board
     
     def new_board(self):
         board = np.zeros((self.rows, self.cols), dtype=int)
@@ -296,25 +288,18 @@ class TetrisApp(object):
             for action in actions_:
                 self.stone, self.stone_x, self.stone_y = actions[action](self.stone, self.stone_x, self.stone_y)
                 self.update_board()
-                pygame.time.wait(10)
+                pygame.time.wait(int(self.sleep*1000))
 
             self.board[BUFFER_SIZE+self.stone_y:BUFFER_SIZE+self.stone_y+self.stone.shape[0],
                        BUFFER_SIZE+self.stone_x:BUFFER_SIZE+self.stone_x+self.stone.shape[1]] += self.stone
 
         else:
-            old_board = self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE].copy() # TODO: Remove
             self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = board
 
-        cleared_rows = 0
-        chosen_board = self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE].copy() # TODO: Remove
-        for i, row in enumerate(self.board[BUFFER_SIZE:-BUFFER_SIZE]):
-            if 0 not in row:
-                self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = self.remove_row(self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE], i)
-                cleared_rows += 1
-
-        if cleared_rows > 4: # TODO: Remove
-            #print(chosen_board)
-            pass
+        cleared_rows = np.sum(np.all(board != 0, axis=1))
+        # Remove rows without zeros and add zeros at the top
+        self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), 
+                                                                                    board[~np.all(board != 0, axis=1)]))
 
         self.add_cl_lines(cleared_rows)
 

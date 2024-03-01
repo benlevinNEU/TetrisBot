@@ -1,11 +1,10 @@
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor
-import os, sys, re, copy, time
+import os, sys, time, cProfile, multiprocessing, platform
 from place_tetris import TetrisApp, COLS, ROWS
-import multiprocessing
-from multiprocessing import Process, Lock
 
-import platform
+import utils
+from get_latest_profiler_data import print_stats
+from evals import *
 
 pltfm = None
 if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.release():
@@ -16,23 +15,42 @@ else:
     pltfm = 'Mac'
     from pynput import keyboard
     from pynput.keyboard import Key
-    
-import cProfile
 
 # Add the parent directory to sys.path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-import utils
-from get_latest_profiler_data import print_stats
+# Get the current directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
-from evals import *
+
+# Initialize the game parameters
+gp = {
+    "gui": True,  # Set to True to visualize the game
+    "cell_size": 20,
+    "cols": 8,
+    "rows": 12,
+    "window_pos": (0, 0),
+    "sleep": 1
+}
+
+# Initialize the training parameters
+tp = {
+    "population_size": 60,
+    "top_n": 5,
+    "generations": 1000,
+    "plays": 5,
+    "mutation_rate": 0.8,
+    "mutation_strength": 5,
+    "profile": True,
+}
 
 # Use all execpt 1 of the available cores
 MAX_WORKERS = multiprocessing.cpu_count() #- 2 # TODO: Add -1 if you don't want to use all cores
-MAX_WORKERS = 5 # TODO: Remove this line to use all cores
-PROF_DIR = "./place-tetris/profiler/"
+MAX_WORKERS = 1 # TODO: Remove this line to use all cores
+PROF_DIR = os.path.join(current_dir, "profiler/")
+MODELS_DIR = os.path.join(current_dir, "models/")
 
 class Model():
     # TODO: Add support for weights for transformed data and biases
@@ -41,7 +59,7 @@ class Model():
         self.weights = weights
 
     def play(self, gp, pos):
-        self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], window_pos=pos)
+        self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
         
         if gp["gui"]:
             self.game.update_board()
@@ -174,7 +192,7 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
     results = list(results_list)
     return results
 
-def mutate_next_gen(top_models_weights, population_size, mutation_rate=0.01, mutation_strength=0.01, profile=(False, 0)):
+def mutate_next_gen(top_models_weights, tp, profile=(False, 0)):
     next_generation = []
 
     manager = multiprocessing.Manager()
@@ -183,7 +201,7 @@ def mutate_next_gen(top_models_weights, population_size, mutation_rate=0.01, mut
 
     processes = []
 
-    nchildren = int(population_size / top_models_weights.shape[0])
+    nchildren = int(tp["population_size"] / top_models_weights.shape[0])
 
     count = 0
     for weights in top_models_weights:
@@ -205,15 +223,15 @@ def mutate_next_gen(top_models_weights, population_size, mutation_rate=0.01, mut
                 time.sleep(0.001)
 
         if MAX_WORKERS > 1:
-            args = (count, mutation_rate, mutation_strength, models, nchildren, profile)
+            args = (count, tp["mutation_rate"], tp["mutation_strength"], models, nchildren, profile)
             p = multiprocessing.Process(target=model.mutate, args=(args,))
             p.start()
             processes.append(p)
         else:
-            model.mutate((count, mutation_rate, mutation_strength, models, nchildren, (False, 0)))
+            model.mutate((count, tp["mutation_rate"], tp["mutation_strength"], models, nchildren, (False, 0)))
 
         # Simple progress bar
-        progress = int((count) / population_size * 100)
+        progress = int((count) / tp["population_size"] * 100)
         sys.stdout.write(f"\rMutating: {progress}%")
         sys.stdout.flush()
 
@@ -229,7 +247,8 @@ def mutate_next_gen(top_models_weights, population_size, mutation_rate=0.01, mut
 
 def main(stdscr):
 
-    profile = True
+    ## General Setup
+    profile = tp["profile"]
     tid = int(time.time())
 
     if profile: os.makedirs(f"{PROF_DIR}{tid}")
@@ -239,61 +258,6 @@ def main(stdscr):
         profiler.enable()
 
     multiprocessing.set_start_method('spawn')
-
-    # Parameters for the evolutionary process
-    population_size = 60
-    top_n = 5
-    generations = 1000
-    plays = 5  # Number of games to play for each model each generation
-
-    # Initialize the game parameters
-    gp = {
-        "gui": False,  # Set to True to visualize the game
-        "cell_size": 20,
-        "cols": 8,
-        "rows": 12,
-        "window_pos": (0, 0)
-    }
-
-    # Initialize the training parameters
-    tp = {
-        "population_size": population_size,
-        "top_n": top_n,
-        "generations": generations,
-        "plays": plays,
-        "mutation_rate": 0.8,
-        "mutation_strength": 5,
-        "profile": profile,
-    }
-
-    print("Starting Evolutionary Training")
-
-    models_dir = "./place-tetris/models/"
-    population = [Model() for _ in range(population_size)]
-    file_name = f"models_{gp['rows']}x{gp['cols']}.npy"
-    print(f"Saving data to: {models_dir}{file_name}")
-
-    def prev_data_exists(model_dir):
-        for fn in os.listdir(model_dir):
-            if fn == file_name:
-                return True
-        return False
-
-    exists = prev_data_exists(models_dir)
-
-    if not exists:
-        # Initialize population with custom initialization
-        population = Model().mutate((0, tp["mutation_rate"], tp['mutation_strength'], [], population_size, (False, tid)))
-        models_info = None
-    else:
-        # Load the latest generation as an array
-        models_data_file = os.path.join(models_dir, file_name)
-        models_info = np.load(models_data_file)
-
-        # Extract the weights of the top networks
-        top_models_weights = models_info[:top_n, 2:]
-        
-        population = mutate_next_gen(top_models_weights, population_size, tp["mutation_rate"], tp['mutation_strength'])
 
     exit = False
 
@@ -315,44 +279,69 @@ def main(stdscr):
         curses.noecho()  # Prevent input from being echoed to the screen
         stdscr.nodelay(True)  # Make getch() non-blocking
 
-    if models_info is not None:
-        latest_generation = int(np.max(models_info[:, 1]))
-    else:
+
+    print("Starting Evolutionary Training")
+
+
+    ## Load or Initialize Population
+    population = [Model() for _ in range(tp["population_size"])]
+    file_name = f"models_{gp['rows']}x{gp['cols']}.npy"
+    print(f"Saving data to: {MODELS_DIR}{file_name}")
+
+    def prev_data_exists(model_dir):
+        for fn in os.listdir(model_dir):
+            if fn == file_name:
+                return True
+        return False
+
+    exists = prev_data_exists(MODELS_DIR)
+
+    if not exists:
+        # Initialize population with custom initialization
+        population = Model().mutate((0, tp, [], (False, tid)))
+        models_info = None
         latest_generation = 0
+        
+    else:
+        # Load the latest generation as an array
+        models_data_file = os.path.join(MODELS_DIR, file_name)
+        models_info = np.load(models_data_file)
+        latest_generation = int(np.max(models_info[:, 1]))
 
     #for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
-    for generation in range(latest_generation + 1, generations):
+    for generation in range(latest_generation + 1, tp["generations"]):
+
+        # Extract the networks of the top performers
+        top_models_weights = models_info[:tp["top_n"], 2:]
+
+        population = mutate_next_gen(top_models_weights, tp, profile=(profile, tid))
 
         # Evaluate all networks in parallel
-        results = evaluate_population(population, plays, gp, (profile, tid))
+        results = evaluate_population(population, tp["plays"], gp, (profile, tid))
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
-        data = np.array([(score,generation) + tuple(weights) for weights, score in results])
+        models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
 
         # Select top performers
-        top_performers = data[data[:, 0].argsort()[::-1]]
+        top_performers = models_info[models_info[:, 0].argsort()[::-1]]
 
         # Print generation info
         print(f"Generation {generation}: Top Score = {top_performers[0,0]}")
 
+
         # Save the numpy array to the file
-        if not os.path.exists(models_dir):
-            os.makedirs(models_dir)
-        save_file = os.path.join(models_dir, file_name)
-        if prev_data_exists(models_dir):
-            models_info = np.load(save_file)
+        if not os.path.exists(MODELS_DIR):
+            os.makedirs(MODELS_DIR)
+        save_file = os.path.join(MODELS_DIR, file_name)
 
-        if models_info is not None:
-            data = np.vstack([models_info, data])
-        data = data[data[:, 0].argsort()[::-1]]
+        if exists:
+            models_info = np.vstack([models_info, np.load(save_file)])
+        models_info = models_info[models_info[:, 0].argsort()[::-1]]
 
-        np.save(save_file, data)
+        np.save(save_file, models_info)
+        
 
-        # Extract the networks of the top performers
-        top_models_weights = data[:top_n, 2:]
-
-        population = mutate_next_gen(top_models_weights, population_size, tp["mutation_rate"], tp['mutation_strength'], profile=(profile, tid))
-
+        # Check for safe exit
         if pltfm == 'WSL':
             # Non-blocking check for input
             key = stdscr.getch()
@@ -367,15 +356,16 @@ def main(stdscr):
 
     print("Finished Evolutionary Training")
 
+
+    ## Clean Up
     if profile:
         profiler.disable()
         profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
 
         profiler_dir = f"{PROF_DIR}{tid}"
-        directory = './place-tetris'
 
         p = utils.merge_profile_stats(profiler_dir)
-        print_stats(utils.filter_methods(p, directory).strip_dirs().sort_stats('tottime'))
+        print_stats(utils.filter_methods(p, current_dir).strip_dirs().sort_stats('tottime'))
         print_stats(p.strip_dirs().sort_stats('tottime'), 30)
 
 if __name__ == "__main__":

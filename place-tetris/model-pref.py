@@ -64,3 +64,6 @@ if __name__ == "__main__":
     while True:
         plot_model_performance(file, ax, lines)
         plt.pause(30)  # Pause for 30 seconds before updating again
+
+        if not plt.fignum_exists(fig.number):
+            break

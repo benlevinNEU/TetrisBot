@@ -160,13 +160,10 @@ def getPointsForMove(state):
 
     board, actions = state
 
-    board[board == 8] = 0
-    board[board == 5] = 0
-
     actions = np.array(actions)
 
-    drops = np.count_nonzero(actions == 3)
-    cl_rows = np.count_nonzero(np.all(board != 0, axis=1))
+    drops = np.sum(actions == 3)
+    cl_rows = np.sum(np.all(board != 0, axis=1))
 
     # TODO: Make extensible
     linescores = [0, 40, 100, 300, 1200]
@@ -182,6 +179,9 @@ def getEvals(state):
     board[board > 0] = 1
 
     points = getPointsForMove(state)
+
+    cleared_rows = np.sum(np.all(board != 0, axis=1))
+    board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
 
     bmps, max_height, avg_height, board = getHeightParams(board) # Outputs trimmed board
 
