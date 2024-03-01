@@ -41,8 +41,8 @@ tp = {
     "top_n": 5,
     "generations": 1000,
     "plays": 5,
-    "mutation_rate": 0.8,
-    "mutation_strength": 5,
+    "mutation_rate": lambda gen: 0.8 * np.exp(-0.001 * gen) + 0.1,
+    "mutation_strength": lambda gen: 5 * np.exp(-0.001 * gen) + 0.1,
     "profile": True,
 }
 
@@ -192,7 +192,7 @@ def evaluate_population(population, plays, game_params, profile=(False, 0)):
     results = list(results_list)
     return results
 
-def mutate_next_gen(top_models_weights, tp, profile=(False, 0)):
+def mutate_next_gen(top_models_weights, tp, profile=(False, 0), gen=0):
     next_generation = []
 
     manager = multiprocessing.Manager()
@@ -223,12 +223,12 @@ def mutate_next_gen(top_models_weights, tp, profile=(False, 0)):
                 time.sleep(0.001)
 
         if MAX_WORKERS > 1:
-            args = (count, tp["mutation_rate"], tp["mutation_strength"], models, nchildren, profile)
+            args = (count, tp["mutation_rate"](gen), tp["mutation_strength"](gen), models, nchildren, profile)
             p = multiprocessing.Process(target=model.mutate, args=(args,))
             p.start()
             processes.append(p)
         else:
-            model.mutate((count, tp["mutation_rate"], tp["mutation_strength"], models, nchildren, (False, 0)))
+            model.mutate((count, tp["mutation_rate"](gen), tp["mutation_strength"](gen), models, nchildren, (False, 0)))
 
         # Simple progress bar
         progress = int((count) / tp["population_size"] * 100)
@@ -314,7 +314,7 @@ def main(stdscr):
         # Extract the networks of the top performers
         top_models_weights = models_info[:tp["top_n"], 2:]
 
-        population = mutate_next_gen(top_models_weights, tp, profile=(profile, tid))
+        population = mutate_next_gen(top_models_weights, tp, profile=(profile, tid), gen=generation)
 
         # Evaluate all networks in parallel
         results = evaluate_population(population, tp["plays"], gp, (profile, tid))
