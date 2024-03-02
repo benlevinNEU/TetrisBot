@@ -270,7 +270,6 @@ def main(stdscr):
         models_info = np.load(models_data_file)
         latest_generation = int(np.max(models_info[:, 1]))
 
-    #for generation in range(utils.get_newest_generation_number(networks_dir) + 1, generations):
     for generation in range(latest_generation + 1, TP["generations"]):
 
         if models_info is None:
