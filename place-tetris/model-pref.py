@@ -10,6 +10,7 @@ nft = TP["feature_transform"](0).shape[0] # Number of fe transforms
 file_name = f"models_{GP['rows']}x{GP['cols']}_{nft}.npy"
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
+topN = TP["top_n"]
 
 def init_plot():
     # Prepare the plot outside the function to avoid creating new windows
@@ -17,7 +18,7 @@ def init_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
     lines = {
         "best_score": ax.plot([], [], label='Best Score', linestyle='-', color='green')[0],
-        "average_top5": ax.plot([], [], label='Average Score of Top 5 Models', linestyle='-', color='blue')[0],
+        "average_top5": ax.plot([], [], label=f'Average Score of Top {topN} Models', linestyle='-', color='blue')[0],
         "best_score_in_gen": ax.plot([], [], label='Best Score In Gen', linestyle='-', color='orange')[0],
         "average_score_in_gen": ax.plot([], [], label='Average Score in Gen', linestyle='-', color='red')[0]
     }
@@ -39,7 +40,7 @@ def plot_model_performance(file, ax, lines):
     init = np.vstack((i_s, np.zeros((len(generations), 1))))
 
     best_score = init.copy()
-    average_score_of_top5 = init.copy()
+    average_score_of_topN = init.copy()
     best_score_in_gen = init.copy()
     average_score_in_gen = init.copy()
 
@@ -52,19 +53,19 @@ def plot_model_performance(file, ax, lines):
         best_score_in_gen[gen] = np.max(gen_scores)
         average_score_in_gen[gen] = np.mean(gen_scores)
         best_score[gen] = np.max(best_score_in_gen)
-        average_score_of_top5[gen] = np.mean(all_scores[:5])
+        average_score_of_topN[gen] = np.mean(all_scores[:topN])
 
     generations = [0] + generations
 
     # Update the data for each plot line
     lines["best_score"].set_data(generations, best_score.ravel())
-    lines["average_top5"].set_data(generations, average_score_of_top5.ravel())
+    lines["average_top5"].set_data(generations, average_score_of_topN.ravel())
     lines["best_score_in_gen"].set_data(generations, best_score_in_gen.ravel())
     lines["average_score_in_gen"].set_data(generations, average_score_in_gen.ravel())
 
     # Adjust the x-axis and y-axis limits
     ax.set_xlim(0, max(generations))
-    ax.set_ylim(0, np.max([best_score, average_score_of_top5, best_score_in_gen, average_score_in_gen]) * 1.1)
+    ax.set_ylim(0, np.max([best_score, average_score_of_topN, best_score_in_gen, average_score_in_gen]) * 1.1)
 
     # Redraw the plot
     plt.draw()
