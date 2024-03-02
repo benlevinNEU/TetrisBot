@@ -2,6 +2,9 @@ import numpy as np
 import os, sys, time, cProfile, multiprocessing, platform, re
 from place_tetris import TetrisApp, COLS, ROWS
 
+from multiprocessing import Manager, Pool, Value
+import concurrent.futures
+
 import utils
 from get_latest_profiler_data import print_stats
 from evals import *
@@ -96,13 +99,7 @@ class Model():
         X = np.array([tp["feature_transform"](x) for x in vals])
         return np.sum(X.T @ self.weights.T)
 
-    def mutate(self, args):
-
-        index, models, gen, profile = args
-
-        if profile[0]:
-            profiler = cProfile.Profile()
-            profiler.enable()
+    def mutate(self, gen):
         
         children = []
         nchildren = int(TP["population_size"] / TP["top_n"])
@@ -116,21 +113,13 @@ class Model():
 
             children.append(Model(TP, new_weights))
 
-        if profile[0]:
-            profiler.disable()
-            t = int(time.time())
-            profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
-
-        models.append(children)
-
         return children
 
     def evaluate(self, args):
-        index, plays, gp, results_list, slot, profile = args
+        id, plays, gp = args
 
-        if profile[0]:
-            profiler = cProfile.Profile()
-            profiler.enable()
+        # Won't always put window in same place bc proccesses will finish in unknown order
+        slot = id % MAX_WORKERS
 
         width = gp["cell_size"] * (gp["cols"] + 6)
         height = gp["cell_size"] * gp["rows"] + 80
@@ -140,128 +129,91 @@ class Model():
         for _ in range(plays):
             scores.append(self.play(gp, pos))
 
-        results_list.append((self.weights.flatten(), np.mean(scores)))
+        return (self.weights.flatten(), np.mean(scores))
 
-        if profile[0]:
-            profiler.disable()
-            t = int(time.time())
-            profiler.dump_stats(f"{PROF_DIR}{profile[1]}/proc{index}{t}.prof")
+def mutate_model(args):
+    weights, _, gen = args # id is not used
+    model = Model(weights=weights)
+    return model.mutate(gen)
 
-def worker_func(args):
+def evaluate_model(args):
+    model, _, _, _ = args
+    return model.evaluate(args[1:])
 
-    model, index, plays, gp, results_list, slot, profile = args
-    model.evaluate((index, plays, gp, results_list, slot, profile))
+def profiler_wrapper(args):
+    """
+    Wrapper function to profile a task function.
 
-# TODO: Modify function create create percistent threads and create a pool of tasks that they pull from
-def evaluate_population(population, plays, game_params, profile=(False, 0)):
-    manager = multiprocessing.Manager()
-    results_list = manager.list()  # Managed list for collecting results
+    Args:
+    - task_func: The original task function to profile.
+    - task_args: Arguments to pass to the task function.
+    - profile_dir: Directory to save the profile data.
+    - profile_prefix: Prefix for the profile data filename.
+    """
 
-    processes = []
-    for i, model in enumerate(population):
-        if i < MAX_WORKERS:
-            slot = i
+    model, id, task_func, profile_prefix, *task_args = args
 
-        if len(processes) >= MAX_WORKERS:
-            # Continuously check if any process has finished
-            while True:
-                # Check each process in the list
-                for p, open_slot in processes[:]:
-                    if not p.is_alive():
-                        processes.remove((p, open_slot))
-                        slot = open_slot
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    # Execute the original task function
+    # id needs to be passed to the task function bc was previously appended to end of args
+    ret = task_func((model, id, *task_args)) # TODO: Check if this is the correct way to pass args
+    
+    profiler.disable()
+    timestamp = int(time.time())
+    profile_path = os.path.join(PROF_DIR, f"{profile_prefix}/proc_{timestamp}.prof")
+    profiler.dump_stats(profile_path)
 
-                # Break the loop if we are under the max_workers limit
-                if len(processes) < MAX_WORKERS:
-                    break
-                # Avoid tight loop with a short sleep
-                time.sleep(0.001)
+    return ret
 
-        if MAX_WORKERS > 1:
-            # Start a new process
-            args = (i, plays, game_params, results_list, slot, profile)
-            p = multiprocessing.Process(target=model.evaluate, args=(args,))
-            p.start()
-            processes.append((p, slot))
-        else: # If only one worker is available, run the function in the main process
-            model.evaluate((i, plays, game_params, results_list, 0, (False, 0)))
+def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
+    """
+    Wrapper function to execute a task function in a pool of worker processes.
 
-        # Simple progress bar
-        total_population = len(population)
-        progress = int((i + 1) / total_population * 100)
-        sys.stdout.write(f"\rGeneration Running: {progress}%")
-        sys.stdout.flush()
-        
-    # Wait for all remaining processes to complete
-    for p, _ in processes:
-        p.join()
+    Args:
+    - task_func: The original task function to execute.
+    - task_args: Arguments to pass to the task
+        - population of tasks to execute (either list of models or list of model weights)
+        - rest of args
+    - profile: Tuple of (bool, int) indicating whether to profile the task and the profile prefix.
+    - prnt_lbl: Label for the task to print progress.
+    """
 
-    sys.stdout.write(f"\r")
-    sys.stdout.flush()
+    ret_list = []
 
-    # Convert the manager list to a regular list for further processing
-    results = list(results_list)
-    return results
+    # Check if profiling is enabled
+    if profile[0]:
+        func = profiler_wrapper
+        args = (task_args[0], task_func, profile[1], *task_args[1:])
+    else:
+        func = task_func
+        args = task_args
 
-def mutate_next_gen(top_models_weights, tp, profile=(False, 0), gen=0):
-    next_generation = []
+    # Execute the task function
+    with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # Grabs the models from the first arg and assigns an id to each model before submitting
+        futures = [executor.submit(func, (model, id, *args[1:])) for id, model in enumerate(args[0])]
 
-    manager = multiprocessing.Manager()
-    models = manager.list()  # Managed list for collecting results
+        # Track progress and collect results
+        for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            progress = (count / len(args[0])) * 100
+            # Prints the progress percentage with appropriate task label
+            sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%             \r") # Overwrites the line
+            sys.stdout.flush()
+            ret_list.append(future.result())
 
-    processes = []
-
-    count = 0
-    for weights in top_models_weights:
-        model = Model(tp, weights)
-        count += 1
-
-        if len(processes) >= MAX_WORKERS:
-            # Continuously check if any process has finished
-            while True:
-                # Check each process in the list
-                for p in processes:
-                    if not p.is_alive():
-                        processes.remove(p)
-
-                # Break the loop if we are under the max_workers limit
-                if len(processes) < MAX_WORKERS:
-                    break
-                # Avoid tight loop with a short sleep
-                time.sleep(0.001)
-
-        if MAX_WORKERS > 1:
-            args = (count, models, gen, profile)
-            p = multiprocessing.Process(target=model.mutate, args=(args,))
-            p.start()
-            processes.append(p)
-        else:
-            model.mutate((count, models, gen, (False, 0)))
-
-        # Simple progress bar
-        progress = int((count) / tp["population_size"] * 100)
-        sys.stdout.write(f"\rMutating: {progress}%")
-        sys.stdout.flush()
-
-    # Wait for all remaining processes to complete
-    for p in processes:
-        p.join()
-
-    sys.stdout.write(f"\r")
-    sys.stdout.flush()
-
-    next_generation = np.array(list(models)).flatten().tolist()
-    return next_generation
+    return ret_list
 
 def main(stdscr):
 
     ## General Setup
     profile = TP["profile"]
     tid = int(time.time())
-
-    if profile: os.makedirs(f"{PROF_DIR}{tid}")
+    profiler_dir = f"{PROF_DIR}{tid}/"
 
     if profile:
+        os.makedirs(profiler_dir)
         profiler = cProfile.Profile()
         profiler.enable()
 
@@ -308,10 +260,10 @@ def main(stdscr):
         # Initialize population with custom initialization
         init_tp = TP.copy()
         init_tp["top_n"] = 1
-        population = Model(tp=init_tp).mutate((0, [], 0, (False, tid)))
+        population = Model(tp=init_tp).mutate(0)
         models_info = None
         latest_generation = 0
-        
+
     else:
         # Load the latest generation as an array
         models_data_file = os.path.join(MODELS_DIR, file_name)
@@ -323,7 +275,7 @@ def main(stdscr):
 
         if models_info is None:
             # Evaluate all networks in parallel
-            results = evaluate_population(population, TP["plays"], GP, (profile, tid))
+            results = pool_task_wrapper(evaluate_model, (population, TP["plays"], GP), (profile, tid), "Generation Running")
 
             # Unpack the results and create a numpy array with score in the first column and weights after it
             models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
@@ -331,12 +283,12 @@ def main(stdscr):
             # Select top performers
             models_info = models_info[models_info[:, 0].argsort()[::-1]]
             
-        top_models_weights = models_info[:TP["top_n"], 2:]
+        top_models_weights = models_info[:TP["top_n"], 2:] # 2 Labels before weights (score, generation)
 
-        population = mutate_next_gen(top_models_weights, TP, profile=(profile, tid), gen=generation)
+        population = np.array(pool_task_wrapper(mutate_model, (top_models_weights, generation), (profile, tid), "Mutating")).flatten().tolist()
 
         # Evaluate all networks in parallel
-        results = evaluate_population(population, TP["plays"], GP, (profile, tid))
+        results = pool_task_wrapper(evaluate_model, (population, TP["plays"], GP), (profile, tid), "Generation Running")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
@@ -378,9 +330,7 @@ def main(stdscr):
     ## Clean Up
     if profile:
         profiler.disable()
-        profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
-
-        profiler_dir = f"{PROF_DIR}{tid}"
+        profiler.dump_stats(f"{profile_dir}main.prof")
 
         p = utils.merge_profile_stats(profiler_dir)
         print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))
