@@ -131,11 +131,13 @@ class Model():
 
         return (self.weights.flatten(), np.mean(scores))
 
+# Method wrapper
 def mutate_model(args):
     weights, _, gen = args # id is not used
     model = Model(weights=weights)
     return model.mutate(gen)
 
+# Method wrapper
 def evaluate_model(args):
     model, _, _, _ = args
     return model.evaluate(args[1:])
@@ -157,8 +159,7 @@ def profiler_wrapper(args):
     profiler.enable()
     
     # Execute the original task function
-    # id needs to be passed to the task function bc was previously appended to end of args
-    ret = task_func((model, id, *task_args)) # TODO: Check if this is the correct way to pass args
+    ret = task_func((model, id, *task_args))
     
     profiler.disable()
     timestamp = int(time.time())
@@ -219,20 +220,19 @@ def main(stdscr):
 
     multiprocessing.set_start_method('spawn')
 
-    exit = False
+    exit_event = multiprocessing.Event()
 
     def on_press(key):
-        global exit
         # Check if the pressed key is ESC
         if key == Key.esc:
-            exit = True
+            exit_event.set()
             return False
 
     # Set up the listener
     if pltfm == 'Mac':
         listener = keyboard.Listener(on_press=on_press)
         listener.start()
-    else:
+    elif pltfm == 'WSL':
         # Initialize curses environment
         curses.cbreak()  # Disable line buffering
         stdscr.keypad(True)  # Enable special keys to be recorded
@@ -246,7 +246,7 @@ def main(stdscr):
     ## Load or Initialize Population
     nft = TP["feature_transform"](0).shape[0] # Number of fe transforms
     file_name = f"models_{GP['rows']}x{GP['cols']}_{nft}.npy"
-    print(f"Saving data to: {MODELS_DIR}{file_name}")
+    print(f"Saving data to: \n{MODELS_DIR}{file_name}")
 
     def prev_data_exists(model_dir):
         for fn in os.listdir(model_dir):
@@ -320,7 +320,7 @@ def main(stdscr):
                 stdscr.refresh()
 
         # Listen for escape key and break the loop if pressed
-        if exit:
+        if exit_event.is_set():
             break
 
     print("Finished Evolutionary Training")
@@ -329,7 +329,7 @@ def main(stdscr):
     ## Clean Up
     if profile:
         profiler.disable()
-        profiler.dump_stats(f"{profile_dir}main.prof")
+        profiler.dump_stats(f"{PROF_DIR}main.prof")
 
         p = utils.merge_profile_stats(profiler_dir)
         print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))

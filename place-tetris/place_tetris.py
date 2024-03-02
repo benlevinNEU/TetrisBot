@@ -150,22 +150,17 @@ class TetrisApp(object):
             for x, val in enumerate(row):
 
                 if val:
-                    try:
-                        pygame.draw.rect(
-                            self.screen,
-                            colors[val],
-                            pygame.Rect(
-                                (off_x + x) * self.cell_size,
-                                (off_y + y) * self.cell_size,
-                                self.cell_size,
-                                self.cell_size,
-                            ),
-                            0,
-                        )
-                    except IndexError: # TODO: Fix know bug that causes this
-                        with open('./place-tetris/error-log/log.txt', 'a') as file:
-                            prnt = "\n".join(map(str, matrix))
-                            file.write("New error: \n" + prnt + '\n\n')
+                    pygame.draw.rect(
+                        self.screen,
+                        colors[val],
+                        pygame.Rect(
+                            (off_x + x) * self.cell_size,
+                            (off_y + y) * self.cell_size,
+                            self.cell_size,
+                            self.cell_size,
+                        ),
+                        0,
+                    )
 
     def add_cl_lines(self, n):
         linescores = [0, 40, 100, 300, 1200]
@@ -268,9 +263,10 @@ class TetrisApp(object):
             board[BUFFER_SIZE+y:BUFFER_SIZE+y+stone.shape[0], 
                   BUFFER_SIZE+x:BUFFER_SIZE+x+stone.shape[1]] += stone
         except ValueError as e: # TODO: Remove
-            print(e)
-            print(board)
-            print(stone)
+            with open('./place-tetris/error-log/log.txt', 'a') as file:
+                            file.write("New error: \n" + e + '\n\n')
+                            file.write("Stone: \n" + str(stone) + '\n\n')
+                            file.write("Board: \n" + str(board) + '\n\n')
 
         if np.any(board == 2):
             return False, False
