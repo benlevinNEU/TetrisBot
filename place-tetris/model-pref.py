@@ -1,13 +1,16 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import time, os
+import transform_encode as te
+import pandas as pd
 
 # Get correct path to the models data file for current local params setup
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 from local_params import GP, TP
-nft = TP["feature_transform"](0).shape[0] # Number of fe transforms
-file_name = f"models_{GP['rows']}x{GP['cols']}_{nft}.npy"
+ft = TP["feature_transform"]
+nft = ft.count(',') + 1
+file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
 topN = TP["top_n"]
@@ -32,19 +35,20 @@ def init_plot():
     return fig, ax, lines
 
 def plot_model_performance(file, ax, lines):
-    data = np.load(file, allow_pickle=True)[:, 1::-1]
-    data = data[data[:, 0].argsort()]
+    data = pd.read_parquet(models_data_file)
+    data = data.sort_values(by="score", ascending=False)
+    data = data[["gen", "score"]].values
 
-    generations = np.unique(data[:, 0]).astype(int).tolist()
+    generations = int(np.max(data[:, 0]))
     i_s = np.array([0])
-    init = np.vstack((i_s, np.zeros((len(generations), 1))))
+    init = np.vstack((i_s, np.zeros((generations, 1))))
 
     best_score = init.copy()
     average_score_of_topN = init.copy()
     best_score_in_gen = init.copy()
     average_score_in_gen = init.copy()
 
-    for gen in generations:
+    for gen in range(generations):
         gen_scores = data[data[:, 0] == gen][:, 1]
 
         all_scores = data[data[:, 0] <= gen][:, 1]
@@ -55,16 +59,16 @@ def plot_model_performance(file, ax, lines):
         best_score[gen] = np.max(best_score_in_gen)
         average_score_of_topN[gen] = np.mean(all_scores[:topN])
 
-    generations = [0] + generations
 
     # Update the data for each plot line
-    lines["best_score"].set_data(generations, best_score.ravel())
-    lines["average_top5"].set_data(generations, average_score_of_topN.ravel())
-    lines["best_score_in_gen"].set_data(generations, best_score_in_gen.ravel())
-    lines["average_score_in_gen"].set_data(generations, average_score_in_gen.ravel())
+    x = np.linspace(1,generations,generations)
+    lines["best_score"].set_data(x, best_score.ravel()[:-1])
+    lines["average_top5"].set_data(x, average_score_of_topN.ravel()[:-1])
+    lines["best_score_in_gen"].set_data(x, best_score_in_gen.ravel()[:-1])
+    lines["average_score_in_gen"].set_data(x, average_score_in_gen.ravel()[:-1])
 
     # Adjust the x-axis and y-axis limits
-    ax.set_xlim(0, max(generations))
+    ax.set_xlim(0, generations)
     ax.set_ylim(0, np.max([best_score, average_score_of_topN, best_score_in_gen, average_score_in_gen]) * 1.1)
 
     # Redraw the plot

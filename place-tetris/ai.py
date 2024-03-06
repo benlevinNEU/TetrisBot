@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import os, sys, time, cProfile, multiprocessing, platform, re
 from place_tetris import TetrisApp, COLS, ROWS
 
@@ -8,6 +9,7 @@ import concurrent.futures
 import utils
 from get_latest_profiler_data import print_stats
 from evals import *
+import transform_encode as te
 
 pltfm = None
 if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.release():
@@ -52,6 +54,7 @@ tp = {
 }
 '''
 
+FT = eval(f"lambda x: np.array([{te.decode(TP["feature_transform"])}])")
 MAX_WORKERS = TP["workers"] if TP["workers"] > 0 else multiprocessing.cpu_count()
 
 # Get the current directory
@@ -61,9 +64,10 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
     def __init__(self, tp=TP, weights=[]):
+        ft = eval(f"lambda x: np.array([{te.decode(tp["feature_transform"])}])")
         if len(weights) == 0:
-            weights = np.ones(tp["feature_transform"](0).shape[0]*NUM_EVALS)
-        self.weights = weights.reshape(tp["feature_transform"](0).shape[0], NUM_EVALS)
+            weights = np.ones(ft(0).shape[0]*NUM_EVALS)
+        self.weights = weights.reshape(ft(0).shape[0], NUM_EVALS)
 
     def play(self, gp, pos, tp=TP):
         self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
@@ -74,6 +78,9 @@ class Model():
         options = self.game.getFinalStates()
         gameover = False
         score = 0
+        tot_cost = 0
+        moves = 0
+        tot_c_pieces = np.zeros(NUM_EVALS*(FT(0).shape[0]-1))
 
         while not gameover and len(options) > 0:
             min_cost = np.inf
@@ -84,26 +91,32 @@ class Model():
                 if option is None:
                     raise ValueError("Option is None")
 
-                c = self.cost(option, tp)
+                c, c_pieces = self.cost(option, tp)
                 if c < min_cost:
                     min_cost = c
                     best_option = option
+                    min_c_pieces = c_pieces
 
+            tot_cost += min_cost
+            tot_c_pieces += min_c_pieces
+            moves += 1
             options, game_over, score = self.game.ai_command(best_option)
 
+        cost_metrics = np.array([tot_cost/moves/score, *tot_c_pieces/moves/score])
+
         self.game.quit_game()
-        return score
+        return score, cost_metrics
 
     def cost(self, state, tp):
         vals = np.array(getEvals(state))
-        X = np.array([tp["feature_transform"](x) for x in vals])
-        return np.sum(X.T @ self.weights.T)
+        X = np.array([FT(x) for x in vals])
+        costs = X * self.weights.T
+        return np.sum(costs), costs[:,:-1].flatten() # Exclude bias term because not relevant for gradient descent
 
-    def mutate(self, gen):
+    def mutate(self, gen, cm=None):
         
-        children = []
         nchildren = int(TP["population_size"] / TP["top_n"])
-
+        children = []
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
@@ -111,9 +124,10 @@ class Model():
                 if np.random.rand() < TP["mutation_rate"](gen):
                     new_weights[i] += TP["mutation_strength"](gen) * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
-            children.append(Model(TP, new_weights))
+            model = Model(weights=new_weights.flatten())
+            children.append(model)
 
-        return children
+        return pd.DataFrame(children, columns=['model'])
 
     def evaluate(self, args):
         id, plays, gp = args
@@ -125,22 +139,37 @@ class Model():
         height = gp["cell_size"] * gp["rows"] + 80
         pos = ((width * slot) % 2560, height * int(slot / int(2560 / width)))
 
-        scores = []
-        for _ in range(plays):
-            scores.append(self.play(gp, pos))
+        scores = np.zeros(plays)
+        shape = self.weights.shape
+        # 1 for score, rest for cost metrics not including bias term
+        cost_metrics_lst = np.zeros((plays, 1 + shape[1]*(shape[0]-1))) 
+        for i in range(plays):
+            score, cost_metrics = self.play(gp, pos, TP)
+            scores[i] = score
+            cost_metrics_lst[i] = cost_metrics
 
-        return (self.weights.flatten(), np.mean(scores))
+        score = np.mean(scores)
+        cost_metrics = np.mean(cost_metrics_lst, axis=0)
+
+        df = pd.DataFrame({
+            'score': [score],
+            'model': [self],
+            'weights': [self.weights.flatten()],
+            'cost_metrics': [cost_metrics]
+        })
+
+        return df
 
 # Method wrapper
 def mutate_model(args):
-    weights, _, gen = args # id is not used
-    model = Model(weights=weights)
-    return model.mutate(gen)
+    model_df, _, gen = args # id is not used
+    model = Model(weights=model_df['weights'])
+    return model.mutate(gen, model_df['cost_metrics'])
 
-# Method wrapper
+# Method wrapperop  
 def evaluate_model(args):
-    model, _, _, _ = args
-    return model.evaluate(args[1:])
+    model_df, _, _, _ = args
+    return model_df['model'].evaluate(args[1:])
 
 def profiler_wrapper(args):
     """
@@ -169,7 +198,7 @@ def profiler_wrapper(args):
     return ret
 
 def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
-    """
+    """turn
     Wrapper function to execute a task function in a pool of worker processes.
 
     Args:
@@ -191,18 +220,26 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
         func = task_func
         args = task_args
 
-    # Execute the task function
-    with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        # Grabs the models from the first arg and assigns an id to each model before submitting
-        futures = [executor.submit(func, (model, id, *args[1:])) for id, model in enumerate(args[0])]
+    # For easier debugging
+    # Raper method hides source of thrownxceptions
+    if MAX_WORKERS == 1: 
+        # Execute the task function sequentiallyodel
+        for id, model in args[0].iterrows():
+            ret_list.append(func((model, id, *args[1:])))
+    else:
+        # Execute the task function
+        with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # Grabs the models from the first arg and assigns an id to each model before submitting
+            futures = [executor.submit(
+                func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
-        # Track progress and collect results
-        for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
-            progress = (count / len(args[0])) * 100
-            # Prints the progress percentage with appropriate task label
-            sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%             \r") # Overwrites the line
-            sys.stdout.flush()
-            ret_list.append(future.result())
+            # Track progress and collect results
+            for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                progress = (count / len(args[0])) * 100
+                # Prints the progress percentage with appropriate task label
+                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%             \r") # Overwrites the line
+                sys.stdout.flush()
+                ret_list.append(future.result())
 
     return ret_list
 
@@ -244,8 +281,9 @@ def main(stdscr):
 
 
     ## Load or Initialize Population
-    nft = TP["feature_transform"](0).shape[0] # Number of fe transforms
-    file_name = f"models_{GP['rows']}x{GP['cols']}_{nft}.npy"
+    ft = TP["feature_transform"] # Number of feature transforms
+    #file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.npy"
+    file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
     print(f"Saving data to: \n{MODELS_DIR}{file_name}")
 
     def prev_data_exists(model_dir):
@@ -255,59 +293,51 @@ def main(stdscr):
         return False
 
     exists = prev_data_exists(MODELS_DIR)
+    generation = 0
 
-    if not exists:
-        # Initialize population with custom initialization
-        init_tp = TP.copy()
-        init_tp["top_n"] = 1
-        population = Model(tp=init_tp).mutate(0)
-        models_info = None
-        latest_generation = 0
+    for generation in range(0, TP["generations"]):
 
-    else:
-        # Load the latest generation as an array
-        models_data_file = os.path.join(MODELS_DIR, file_name)
-        models_info = np.load(models_data_file)
-        latest_generation = int(np.max(models_info[:, 1]))
+        if not exists:
+            init_tp = TP.copy()
+            init_tp["top_n"] = 1
+            population = Model(tp=init_tp).mutate(0)
+            saved_models_info = pd.DataFrame([])
 
-    for generation in range(latest_generation + 1, TP["generations"]):
-
-        if models_info is None:
-            # Evaluate all networks in parallel
-            results = pool_task_wrapper(evaluate_model, (population, TP["plays"], GP), (profile, tid), "Generation Running")
-
-            # Unpack the results and create a numpy array with score in the first column and weights after it
-            models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
-
-            # Select top performers
-            models_info = models_info[models_info[:, 0].argsort()[::-1]]
+        else:
+            # Load the latest generation as an array
+            models_data_file = os.path.join(MODELS_DIR, file_name)
+            #models_info = np.load(models_data_file)
+            saved_models_info = pd.read_parquet(models_data_file)
+            generation = int(np.max(saved_models_info['gen'])) + 1
             
-        top_models_weights = models_info[:TP["top_n"], 2:] # 2 Labels before weights (score, generation)
-
-        population = np.array(pool_task_wrapper(mutate_model, (top_models_weights, generation), (profile, tid), "Mutating")).flatten().tolist()
+            top_models = saved_models_info.head(TP["top_n"]) # 2 Labels before weights (score, generation)
+            population = pd.concat(pool_task_wrapper(
+                mutate_model, (top_models, generation), (profile, tid), "Mutating"), ignore_index=True)
 
         # Evaluate all networks in parallel
-        results = pool_task_wrapper(evaluate_model, (population, TP["plays"], GP), (profile, tid), "Generation Running")
+        results = pool_task_wrapper(
+            evaluate_model, (population, TP["plays"], GP), (profile, tid), "Generation Running")
+        raw_df = pd.concat(results, ignore_index=True)
+        raw_df["gen"] = generation
+        raw_df = raw_df.sort_values(by="score", ascending=False)
+
+        # Select top score
+        top_score = raw_df.iloc[0]["score"]
+        print(f"Generation {generation}: Top Score = {top_score}")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
-        models_info = np.array([(score,generation) + tuple(weights) for weights, score in results])
+        models_info = pd.concat([saved_models_info, raw_df])
 
-        # Select top performers
-        top_performers = models_info[models_info[:, 0].argsort()[::-1]]
-
-        # Print generation info
-        print(f"Generation {generation}: Top Score = {top_performers[0,0]}")
+        # Sort by preformance
+        models_info = models_info.sort_values(by="score", ascending=False)
+        del models_info["model"]
 
         # Save the numpy array to the file
         if not os.path.exists(MODELS_DIR):
             os.makedirs(MODELS_DIR)
         save_file = os.path.join(MODELS_DIR, file_name)
 
-        if exists:
-            models_info = np.vstack([models_info, np.load(save_file)])
-        models_info = models_info[models_info[:, 0].argsort()[::-1]]
-
-        np.save(save_file, models_info)
+        models_info.to_parquet(save_file)
         exists = True
         
         # Check for safe exit
@@ -329,7 +359,7 @@ def main(stdscr):
     ## Clean Up
     if profile:
         profiler.disable()
-        profiler.dump_stats(f"{PROF_DIR}main.prof")
+        profiler.dump_stats(f"{tid}/{PROF_DIR}main.prof")
 
         p = utils.merge_profile_stats(profiler_dir)
         print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))
