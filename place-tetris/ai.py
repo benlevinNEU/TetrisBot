@@ -50,7 +50,7 @@ tp = {
     "mutation_strength": lambda gen: 10 * np.exp(-0.001 * gen) + 0.1,
     "profile": True,
     "workers": 0, # Use all available cores
-    "feature_transform": lambda x: np.array([x**2, x, 1]),
+    "feature_transform": "x**2,x,1",
 }
 '''
 
@@ -80,7 +80,7 @@ class Model():
         score = 0
         tot_cost = 0
         moves = 0
-        tot_c_pieces = np.zeros(NUM_EVALS*(FT(0).shape[0]-1))
+        norm_c_grad = np.zeros(NUM_EVALS*(FT(0).shape[0]-1))
 
         while not gameover and len(options) > 0:
             min_cost = np.inf
@@ -91,18 +91,18 @@ class Model():
                 if option is None:
                     raise ValueError("Option is None")
 
-                c, c_pieces = self.cost(option, tp)
+                c, c_grad = self.cost(option, tp)
                 if c < min_cost:
                     min_cost = c
                     best_option = option
-                    min_c_pieces = c_pieces
+                    min_c_grad = c_grad
 
             tot_cost += min_cost
-            tot_c_pieces += min_c_pieces
+            norm_c_grad += min_c_grad
             moves += 1
             options, game_over, score = self.game.ai_command(best_option)
 
-        cost_metrics = np.array([tot_cost/moves/score, *tot_c_pieces/moves/score])
+        cost_metrics = np.array([tot_cost/moves/score, *norm_c_grad/moves/score])
 
         self.game.quit_game()
         return score, cost_metrics
@@ -111,20 +111,32 @@ class Model():
         vals = np.array(getEvals(state))
         X = np.array([FT(x) for x in vals])
         costs = X * self.weights.T
-        return np.sum(costs), costs[:,:-1].flatten() # Exclude bias term because not relevant for gradient descent
+        return np.sum(costs), X[:,:-1].flatten() # Exclude bias term because not relevant for gradient descent
 
     def mutate(self, gen, cm=None):
+
+        FT_s = FT(0).shape[0]
+        if cm is None:
+            cm = np.ones((FT_s-1) * NUM_EVALS + 1)
+
+        grad_mag = cm[0]
+        grad = cm[1:].reshape(FT_s-1, NUM_EVALS)
+        step = TP["learning_rate"] * grad/grad_mag
         
         nchildren = int(TP["population_size"] / TP["top_n"])
         children = []
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
-            for i in range(len(new_weights)):
-                if np.random.rand() < TP["mutation_rate"](gen):
-                    new_weights[i] += TP["mutation_strength"](gen) * (np.random.randn()*2 - 1) # Can increase or decrease weights
+            new_weights[0:FT_s-1, 0:NUM_EVALS] += step # Can increase or decrease weights
+            flat_weights = new_weights.flatten()
 
-            model = Model(weights=new_weights.flatten())
+            for i in range(len(flat_weights)):
+                if np.random.rand() < TP["mutation_rate"](gen):
+                    strength = TP["mutation_strength"](gen) * 0.1 if (i+1) % FT_s != 0 else 1
+                    flat_weights[i] += strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
+
+            model = Model(weights=flat_weights)
             children.append(model)
 
         return pd.DataFrame(children, columns=['model'])
