@@ -127,7 +127,7 @@ class Model():
 
         grad_mag = cm[0]
         grad = cm[1:].reshape(FT_s-1, NUM_EVALS)
-        step = TP["learning_rate"] * grad/grad_mag
+        step = TP["learning_rate"](gen) * grad/grad_mag
         
         nchildren = int(TP["population_size"] / TP["top_n"])
         children = []
@@ -139,7 +139,12 @@ class Model():
 
             for i in range(len(flat_weights)):
                 if np.random.rand() < TP["mutation_rate"](gen):
-                    strength = TP["mutation_strength"](gen) * 0.1 if (i+1) % FT_s != 0 or flat_weights[i] == 0 else 1
+                    if flat_weights[i] == 0:
+                        strength = TP["mutation_strength"](gen) * 2
+                    elif (i+1) % FT_s != 0:
+                        strength = TP["mutation_strength"](gen) * 0.1
+                    else:
+                        strength = TP["mutation_strength"](gen)
                     flat_weights[i] += strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
             model = Model(weights=flat_weights)
@@ -302,7 +307,7 @@ def main(stdscr):
     ft = TP["feature_transform"] # Number of feature transforms
     #file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.npy"
     file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
-    print(f"Saving data to: \n{MODELS_DIR}{file_name}")
+    print(f"\rSaving data to: \n\r{MODELS_DIR}{file_name}\n\r")
 
     def prev_data_exists(model_dir):
         for fn in os.listdir(model_dir):
@@ -341,7 +346,7 @@ def main(stdscr):
 
         # Select top score
         top_score = raw_df.iloc[0]["score"]
-        print(f"Generation {generation}: Top Score = {top_score}")
+        print(f"Generation {generation}: Top Score = {top_score}\n\r")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = pd.concat([saved_models_info, raw_df])
