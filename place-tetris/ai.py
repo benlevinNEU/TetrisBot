@@ -346,7 +346,7 @@ def main(stdscr):
 
         # Select top score
         top_score = raw_df.iloc[0]["score"]
-        print(f"Generation {generation}: Top Score = {top_score}\n\r")
+        print(f"Generation {generation}: Top Score = {top_score}\r")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = pd.concat([saved_models_info, raw_df])
