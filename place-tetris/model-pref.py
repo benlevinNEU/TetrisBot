@@ -15,6 +15,8 @@ models_data_file = os.path.join(MODELS_DIR, file_name)
 
 topN = TP["top_n"]
 
+plt.style.use('dark_background')
+
 def init_plot():
     # Prepare the plot outside the function to avoid creating new windows
     plt.ion()  # Turn on interactive mode
@@ -35,7 +37,12 @@ def init_plot():
     return fig, ax, lines
 
 def plot_model_performance(file, ax, lines):
-    data = pd.read_parquet(models_data_file)
+    while True:
+        try:
+            data = pd.read_parquet(file)
+            break
+        except:
+            time.sleep(1)
     data = data.sort_values(by="score", ascending=False)
     data = data[["gen", "score"]].values
 

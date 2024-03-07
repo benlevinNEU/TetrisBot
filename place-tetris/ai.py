@@ -82,7 +82,7 @@ class Model():
         moves = 0
         norm_c_grad = np.zeros(NUM_EVALS*(FT(0).shape[0]-1))
 
-        while not gameover and len(options) > 0:
+        while not gameover and len(options) > 0 and moves < 10000: # Ends the game after 10000 moves
             min_cost = np.inf
             best_option = None
 
@@ -103,6 +103,12 @@ class Model():
             options, game_over, score = self.game.ai_command(best_option)
 
         cost_metrics = np.array([tot_cost/moves/score, *norm_c_grad/moves/score])
+
+        if moves == 10000:
+            success_log = open(F"{CURRENT_DIR}success.log", "a")
+            success_log.write("Game ended after 10000 moves\n")
+            success_log.write(f"{self.weights}")
+            success_log.close()
 
         self.game.quit_game()
         return score, cost_metrics
@@ -133,7 +139,7 @@ class Model():
 
             for i in range(len(flat_weights)):
                 if np.random.rand() < TP["mutation_rate"](gen):
-                    strength = TP["mutation_strength"](gen) * 0.1 if (i+1) % FT_s != 0 else 1
+                    strength = TP["mutation_strength"](gen) * 0.1 if (i+1) % FT_s != 0 or flat_weights[i] == 0 else 1
                     flat_weights[i] += strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
             model = Model(weights=flat_weights)
@@ -371,7 +377,7 @@ def main(stdscr):
     ## Clean Up
     if profile:
         profiler.disable()
-        profiler.dump_stats(f"{tid}/{PROF_DIR}main.prof")
+        profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
 
         p = utils.merge_profile_stats(profiler_dir)
         print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))

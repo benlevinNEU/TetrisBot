@@ -1,4 +1,5 @@
 import numpy as np
+from local_params import GP
 
 board = np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
                  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
@@ -61,6 +62,9 @@ test_holes = np.array([[0, 0, 0, 0],
 def getHeightParams(board):
     bmps = 0
     max_height = 0
+    min_height = np.inf
+    mx_h4e = int(GP["cols"]/2)
+    mn_h4e = 0
 
     column = board[:, 0]
     loc = np.where(column[::-1]==1)
@@ -79,6 +83,11 @@ def getHeightParams(board):
 
         if h1 > max_height:
             max_height = h1
+            mx_h4e = min(col - 0, GP["cols"] - col) # Max height distance from edge
+
+        if h1 < min_height:
+            min_height = h1
+            mn_h4e = min(col - 0, GP["cols"] - col) # Min height distance from edge
 
         column = board[:, col]
         loc = np.where(column[::-1]==1)
@@ -101,7 +110,7 @@ def getHeightParams(board):
     # Impliment board trimming later
     #trimmed_board = board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols]
 
-    return bmps, max_height, height_sum/board.shape[1], board #trimmed_board
+    return bmps, max_height, height_sum/board.shape[1], min_height, mx_h4e, mn_h4e, board #trimmed_board
 
 def dfs(matrix, x, y, visited, value, fill=0):
 
@@ -169,7 +178,7 @@ def getPointsForMove(state):
 
     return drops + cl_pnts
 
-NUM_EVALS = 6
+NUM_EVALS = 9
 def getEvals(state):
 
     board, _ = state
@@ -182,12 +191,12 @@ def getEvals(state):
     cleared_rows = np.sum(np.all(board != 0, axis=1))
     board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
 
-    bmps, max_height, avg_height, board = getHeightParams(board) # Outputs trimmed board
+    bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e, board = getHeightParams(board) # Outputs trimmed board
 
     holes, board = getHoles(board)  # Outputs board with holes plugged with 2's
     overhangs = getOverhangs(board)
 
-    return bmps, max_height, avg_height, holes, overhangs, points
+    return bmps, max_height, avg_height, holes, overhangs, points, min_height, mx_h4e, mn_h4e
 
 if __name__ == "__main__":
     print(getEvals((board, [])))

@@ -33,5 +33,17 @@ data = pd.read_parquet(models_data_file)
 weights = data.sort_values(by="score", ascending=False)["weights"].iloc[0]
 
 model = Model(tp, weights)
+
+print(weights.reshape(nft, NUM_EVALS).T)
+
+game_params = {
+    "gui": True,  # Set to True to visualize the game
+    "cell_size": 30,
+    "cols": 10,
+    "rows": 22,
+    "window_pos": (0, 0),
+    "sleep": 0.01
+}
+
 score, _ = model.play(game_params, (0,0), tp)
 print(score)
