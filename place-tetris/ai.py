@@ -51,6 +51,7 @@ tp = {
     "profile": True,
     "workers": 0, # Use all available cores
     "feature_transform": "x**2,x,1",
+    "learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1
 }
 '''
 

@@ -259,14 +259,8 @@ class TetrisApp(object):
 
         stone[insert_at] = stone[insert_at-1]*3
 
-        try:
-            board[BUFFER_SIZE+y:BUFFER_SIZE+y+stone.shape[0], 
-                  BUFFER_SIZE+x:BUFFER_SIZE+x+stone.shape[1]] += stone
-        except ValueError as e: # TODO: Remove
-            with open('./place-tetris/error-log/log.txt', 'a') as file:
-                            file.write("New error: \n" + e + '\n\n')
-                            file.write("Stone: \n" + str(stone) + '\n\n')
-                            file.write("Board: \n" + str(board) + '\n\n')
+        board[BUFFER_SIZE+y:BUFFER_SIZE+y+stone.shape[0], 
+              BUFFER_SIZE+x:BUFFER_SIZE+x+stone.shape[1]] += stone
 
         if np.any(board == 2):
             return False, False

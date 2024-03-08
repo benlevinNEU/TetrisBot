@@ -132,23 +132,33 @@ def dfs(matrix, x, y, visited, value, fill=0):
 
 def getHoles(board):
 
-    visited = np.ones_like(board, dtype=bool)*-1
-    visited[board == 1] = 0
+    trimboard = board.copy()
+    h = max(0, np.argmax(np.any(trimboard == 1, axis=1)) - 1)
+    l = max(0, np.argmax(np.any(trimboard == 1, axis=0)) - 1)
+    r = min(GP["cols"], GP["cols"] - np.argmax(np.any(trimboard[:, ::-1] == 1, axis=0)) + 1)
+
+    trimboard = trimboard[h:, l:r]
+
+    if trimboard.shape[0] == 1:
+        pass
+
+    visited = np.ones_like(trimboard, dtype=bool)*-1
+    visited[trimboard == 1] = 0
 
     island_count = 0
 
-    for i in range(board.shape[0]):
-        for j in range(board.shape[1]):
-            if board[i, j] == 0 and visited[i, j] == -1:
+    for i in range(trimboard.shape[0]):
+        for j in range(trimboard.shape[1]):
+            if trimboard[i, j] == 0 and visited[i, j] == -1:
                 if i == 0: # Top row should be empty and not filled 
-                    dfs(board, j, i, visited, 0)
+                    dfs(trimboard, j, i, visited, 0)
                 else: 
-                    dfs(board, j, i, visited, 0, fill=2)
+                    dfs(trimboard, j, i, visited, 0, fill=2)
                     island_count += 1
 
-    board += visited
+    trimboard += visited
 
-    return island_count, board
+    return island_count, trimboard
 
 def getOverhangs(board):
     overhangs = 0
