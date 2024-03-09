@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import time, os
+import time, os, sys
 import transform_encode as te
 import pandas as pd
 
@@ -66,9 +66,19 @@ def plot_model_performance(file, ax, lines):
         best_score[gen] = np.max(best_score_in_gen)
         average_score_of_topN[gen] = np.mean(all_scores[:topN])
 
+        if generations > 1000:
+            # Calculate progress percentage
+            progress = (gen + 1) / generations * 100
+
+            # Print progress bar
+            bar_length = 50
+            filled_length = int(bar_length * progress / 100)
+            bar = '#' * filled_length + '-' * (bar_length - filled_length)
+            sys.stdout.write(f'\rProgress: [{bar}] {progress:.2f}%')
+            sys.stdout.flush()
 
     # Update the data for each plot line
-    x = np.linspace(1,generations,generations)
+    x = np.linspace(1,generations,generations) -1
     lines["best_score"].set_data(x, best_score.ravel()[:-1])
     lines["average_top5"].set_data(x, average_score_of_topN.ravel()[:-1])
     lines["best_score_in_gen"].set_data(x, best_score_in_gen.ravel()[:-1])

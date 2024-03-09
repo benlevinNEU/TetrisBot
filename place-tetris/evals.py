@@ -60,10 +60,14 @@ test_holes = np.array([[0, 0, 0, 0],
                        
 
 def getHeightParams(board):
+
+    cols = GP["cols"]
+    rows = GP["rows"]
+
     bmps = 0
     max_height = 0
     min_height = np.inf
-    mx_h4e = int(GP["cols"]/2)
+    mx_h4e = int(cols/2)
     mn_h4e = 0
 
     column = board[:, 0]
@@ -71,23 +75,15 @@ def getHeightParams(board):
     h1 = np.max(loc)+1 if len(loc[0]) > 0 else 0
     height_sum = h1
 
-    # Will be used for trimming board for following tests
-    mt_lcols = board.shape[1] # Subtract 1 to make sure holes doesn't get false positive
-    mt_rcols = board.shape[1]
-
     for col in range(1, board.shape[1]):
-        if h1 > 0:
-            # Subtract 1 to make sure holes doesn't get false positive
-            mt_lcols = min(col-2, mt_lcols)
-            mt_rcols = max(board.shape[1] - col - 1, 0)
 
         if h1 > max_height:
             max_height = h1
-            mx_h4e = min(col - 0, GP["cols"] - col) # Max height distance from edge
+            mx_h4e = min(col - 0, cols - col) # Max height distance from edge
 
         if h1 < min_height:
             min_height = h1
-            mn_h4e = min(col - 0, GP["cols"] - col) # Min height distance from edge
+            mn_h4e = min(col - 0, cols - col) # Min height distance from edge
 
         column = board[:, col]
         loc = np.where(column[::-1]==1)
@@ -100,17 +96,8 @@ def getHeightParams(board):
     if h2 > max_height:
         max_height = h2
 
-    mt_lcols = max(mt_lcols, 0)
-
-    start_index = max(board.shape[0]-max_height-1, 0)
-
-    if board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols].shape[0] < 2:
-        pass
-    
-    # Impliment board trimming later
-    #trimmed_board = board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols]
-
-    return bmps, max_height, height_sum/board.shape[1], min_height, mx_h4e, mn_h4e, board #trimmed_board
+    # Normalize values to board size
+    return bmps/(cols*rows), max_height/rows, height_sum/(rows**2), min_height/rows, mx_h4e/cols, mn_h4e/cols, board #trimmed_board
 
 def dfs(matrix, x, y, visited, value, fill=0):
 
