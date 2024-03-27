@@ -170,7 +170,7 @@ class Model():
             new_weights = self.weights.copy()
 
             # Assumes bias term is last term in weights and does not step gradient for bias term
-            new_weights[:-1, :] -= w_step[:-1, :] # Can increase or decrease weights
+            new_weights[:, :-1] -= w_step[:, :-1] # Can increase or decrease weights
             #flat_weights = new_weights.flatten()
 
             new_sigmas = self.sigma.copy()
