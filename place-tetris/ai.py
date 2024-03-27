@@ -32,7 +32,7 @@ from local_params import GP, TP
 # **DO NOT COMMIT YOUR PARAMS TO GIT**
 '''
 import numpy as np
-gp = {
+GP = {
     "gui": False,  # Set to True to visualize the game
     "cell_size": 20,
     "cols": 8,
@@ -42,17 +42,21 @@ gp = {
 }
 
 # Initialize the training parameters
-tp = {
-    "population_size": 60,
-    "top_n": 5,
+TP = {
+    "population_size": 100,
+    "top_n": 20,
     "generations": 1000,
-    "plays": 5,
-    "mutation_rate": lambda gen: 0.8 * np.exp(-0.001 * gen) + 0.1,
-    "mutation_strength": lambda gen: 10 * np.exp(-0.001 * gen) + 0.1,
+    "plays": 2,
+    "mutation_rate": lambda gen: 0.8 * np.exp(-0.002 * gen) + 0.1,
+    "mutation_strength": lambda gen: 0.5 * np.exp(-0.002 * gen) + 0.1,
+    "s_mutation_strength": lambda gen: 0.2 * np.exp(-0.002 * gen) + 0.02,
+    "momentum": [0.9, 0.1],
     "profile": True,
-    "workers": 0, # Use all available cores
-    "feature_transform": "x**2,x,1",
-    "learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1
+    "workers": 8,
+    "feature_transform": "self.gauss(x),x,np.ones_like(x)",
+    "learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1,
+    "s_learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1,
+    "age_factor": lambda age: 0.1 * np.exp(0.05 * age) + 1
 }
 '''
 
