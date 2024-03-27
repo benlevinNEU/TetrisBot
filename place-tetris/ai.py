@@ -47,14 +47,14 @@ TP = {
     "top_n": 20,
     "generations": 1000,
     "plays": 2,
-    "mutation_rate": lambda gen: 0.8 * np.exp(-0.002 * gen) + 0.1,
-    "mutation_strength": lambda gen: 0.5 * np.exp(-0.002 * gen) + 0.1,
-    "s_mutation_strength": lambda gen: 0.2 * np.exp(-0.002 * gen) + 0.02,
+    "mutation_rate": lambda gen: 0.5 * np.exp(-0.002 * gen) + 0.1,
+    "mutation_strength": lambda gen: 0.3 * np.exp(-0.002 * gen) + 0.1,
+    "s_mutation_strength": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.02,
     "momentum": [0.9, 0.1],
     "profile": True,
     "workers": 8,
     "feature_transform": "self.gauss(x),x,np.ones_like(x)",
-    "learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1,
+    "learning_rate": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.1,
     "s_learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1,
     "age_factor": lambda age: 0.1 * np.exp(0.05 * age) + 1
 }
@@ -74,8 +74,8 @@ class Model():
         ft = eval(f"lambda self, x: np.array([{te.decode(tp["feature_transform"])}])")
         self.fts = ft(self, np.ones(NUM_EVALS)).shape[0]
         if len(weights) == 0:
-            weights = np.ones(self.fts*NUM_EVALS)
-        self.weights = weights.reshape(self.fts, NUM_EVALS)
+            weights = np.ones([NUM_EVALS, self.fts])
+        self.weights = weights
         self.gen = gen
 
     def play(self, gp, pos, tp=TP):
@@ -89,7 +89,7 @@ class Model():
         score = 0
         tot_cost = 0
         moves = 0
-        norm_c_grad = np.zeros(NUM_EVALS*self.fts)
+        norm_c_grad = np.zeros([NUM_EVALS, self.fts]) #TODO: Check if this is correct
         norm_s_grad = np.zeros(NUM_EVALS)
 
         while not gameover and len(options) > 0 and moves < 10000: # Ends the game after 10000 moves
@@ -116,7 +116,7 @@ class Model():
             options, game_over, score = game.ai_command(best_option)
 
         # Return the absolute value of the average cost per move and the average gradient
-        w_cost_metrics = np.array([abs(tot_cost/moves/score), *norm_c_grad/moves/score])
+        w_cost_metrics = norm_c_grad/moves/score
         s_cost_metrics = norm_s_grad/moves/score
 
         if moves == 10000:
@@ -141,27 +141,24 @@ class Model():
     def cost(self, state, tp=TP):
         vals = getEvals(state)
         X = FT(self, vals)
-        costs = X * self.weights.T
+        costs = X * self.weights
 
         sigma_grad = np.zeros(NUM_EVALS)
         if "self.gauss" in tp["feature_transform"]:
-            gWeights = self.weights[tp["feature_transform"].index("self.gauss")]
+            gWeights = self.weights[:, tp["feature_transform"].index("self.gauss")]
             sigma_grad = self.sigma_grad(vals) * gWeights
 
-        return np.sum(costs), X.flatten(), sigma_grad
+        return np.sum(costs), X, sigma_grad
 
-    def mutate(self, gen, w_cm=None, s_cm=None):
+    def mutate(self, gen, w_grad=None, s_cm=None):
 
         # TODO: Introduce momentum factor
 
-        if w_cm is None:
-            w_cm = np.ones(1 + self.fts * NUM_EVALS)
+        if w_grad is None:
+            w_grad = np.ones([NUM_EVALS, self.fts])
 
         if s_cm is None:
             s_cm = np.ones(NUM_EVALS)
-
-        av_cost = w_cm[0]
-        w_grad = w_cm[1:].reshape(self.fts, NUM_EVALS)
 
         # Regularize gradient step scale largest step to the learning rate
         w_step = TP["learning_rate"](gen)/np.max(abs(w_grad/self.weights)) * w_grad
@@ -172,28 +169,30 @@ class Model():
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
-            new_weights += w_step # Can increase or decrease weights
-            flat_weights = new_weights.flatten()
+            # Assumes bias term is last term in weights and does not step gradient for bias term
+            new_weights[:-1, :] += w_step[:-1, :] # Can increase or decrease weights
+            #flat_weights = new_weights.flatten()
 
             new_sigmas = self.sigma.copy()
             new_sigmas += s_step
 
             # Random mutation introduction
-            for i in range(len(flat_weights)):
-                if np.random.rand() < TP["mutation_rate"](gen):
-                    # Strong mutation if weight is 0
-                    if flat_weights[i] == 0:
-                        strength = TP["mutation_strength"](gen) * 10
-                    else:
-                        strength = TP["mutation_strength"](gen)
+            for e in range(NUM_EVALS):
+                for f in range(self.fts):
+                    if np.random.rand() < TP["mutation_rate"](gen):
+                        # Strong mutation if weight is 0
+                        if new_weights[e,f] == 0:
+                            strength = TP["mutation_strength"](gen) * 10
+                        else:
+                            strength = TP["mutation_strength"](gen)
 
-                    # Strengthen mutation for very old parents (max age factor is 100)
-                    age_factor = min(100, TP['age_factor'](gen - self.gen))
-                    mutation = np.random.normal(0, strength, 1)[0] # Can increase or decrease weights
-                    
-                    # TODO: Regularize mutation
-                    #reg_mutation = mutation * w_step[i].flatten() # Regularize mutation
-                    flat_weights[i] += mutation * age_factor #reg_mutation
+                        # Strengthen mutation for very old parents (max age factor is 100)
+                        age_factor = min(100, TP['age_factor'](gen - self.gen))
+                        mutation = np.random.normal(0, strength, 1)[0] # Can increase or decrease weights
+                        
+                        # TODO: Regularize mutation
+                        #reg_mutation = mutation * w_step[i].flatten() # Regularize mutation
+                        new_weights[e,f] += mutation * age_factor #reg_mutation
 
             for i in range(len(new_sigmas)):
                 if np.random.rand() < TP["mutation_rate"](gen):
@@ -203,7 +202,7 @@ class Model():
 
             new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
 
-            model = Model(weights=flat_weights, sigmas=new_sigmas)
+            model = Model(weights=new_weights, sigmas=new_sigmas)
             children.append(model)
 
         return pd.DataFrame(children, columns=['model'])
@@ -221,17 +220,16 @@ class Model():
         scores = np.zeros(plays)
         shape = self.weights.shape
         # 1 for score, rest for cost metrics not including bias term
-        w_cost_metrics_lst = np.zeros((plays, 1 + shape[1]*shape[0])) 
-        s_cost_metrics_lst = np.zeros((plays, shape[1]))
+        w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
+        s_cost_metrics_lst = np.zeros((plays, shape[0]))
         for i in range(plays):
             score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
             scores[i] = score
             w_cost_metrics_lst[i] = w_cost_metrics
             s_cost_metrics_lst[i] = s_cost_metrics
 
-
         score = np.mean(scores)
-        w_cost_metrics = np.mean(w_cost_metrics_lst, axis=0)
+        h = np.mean(w_cost_metrics_lst, axis=0)
         s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
 
         df = pd.DataFrame({
@@ -239,7 +237,7 @@ class Model():
             'model': [self],
             'weights': [self.weights.flatten()],
             'sigmas': [self.sigma],
-            'w_cost_metrics': [w_cost_metrics],
+            'w_cost_metrics': [w_cost_metrics.flatten()],
             's_cost_metrics': [s_cost_metrics],
         })
 
@@ -249,10 +247,12 @@ class Model():
 def mutate_model(args):
 
     model_df, _, gen = args # id is not used
-    model = Model(weights=model_df['weights'], sigmas=model_df['sigmas'], gen=model_df['gen'])
-    return model.mutate(gen, model_df['w_cost_metrics'], model_df['s_cost_metrics'])
+    weights = model_df['weights'].reshape([NUM_EVALS, int(len(model_df['weights'])/NUM_EVALS)])
+    model = Model(weights=weights, sigmas=model_df['sigmas'], gen=model_df['gen'])
+    w_cm = model_df['w_cost_metrics'].reshape([NUM_EVALS, model.fts])
+    return model.mutate(gen, w_cm, model_df['s_cost_metrics'])
 
-# Method wrapperop  
+# Method wrapperop  _ste[]
 def evaluate_model(args):
     model_df, _, _, _ = args
     return model_df['model'].evaluate(args[1:])
