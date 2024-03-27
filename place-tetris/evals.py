@@ -59,27 +59,19 @@ test_holes = np.array([[0, 0, 0, 0],
                        [0, 1, 1, 0]])
                        
 
-def getHeightParams(board):
+def getHeightParams():
     bmps = 0
     max_height = 0
     min_height = np.inf
     mx_h4e = int(GP["cols"]/2)
     mn_h4e = 0
 
-    column = board[:, 0]
+    column = board[:, 0]                            # Vertical slice of board
     loc = np.where(column[::-1]==1)
     h1 = np.max(loc)+1 if len(loc[0]) > 0 else 0
     height_sum = h1
 
-    # Will be used for trimming board for following tests
-    mt_lcols = board.shape[1] # Subtract 1 to make sure holes doesn't get false positive
-    mt_rcols = board.shape[1]
-
-    for col in range(1, board.shape[1]):
-        if h1 > 0:
-            # Subtract 1 to make sure holes doesn't get false positive
-            mt_lcols = min(col-2, mt_lcols)
-            mt_rcols = max(board.shape[1] - col - 1, 0)
+    for col in range(1, GP["cols"]):
 
         if h1 > max_height:
             max_height = h1
@@ -100,17 +92,18 @@ def getHeightParams(board):
     if h2 > max_height:
         max_height = h2
 
-    mt_lcols = max(mt_lcols, 0)
+    # Get theoretical max bmps
+    max_bmps = ((GP['cols']-1)*GP['rows'])
 
-    start_index = max(board.shape[0]-max_height-1, 0)
+    n_bmps = bmps/max_bmps
+    n_max_height = max_height/GP['rows']
+    n_avg_height = height_sum/GP['cols']/GP['rows']
+    n_min_height = min_height/GP['rows']
+    n_mx_h4e = mx_h4e/(GP['cols']/2)
+    n_mn_h4e = mn_h4e/(GP['cols']/2)
 
-    if board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols].shape[0] < 2:
-        pass
-    
-    # Impliment board trimming later
-    #trimmed_board = board[start_index:board.shape[0], mt_lcols:board.shape[1]-mt_rcols]
-
-    return bmps, max_height, height_sum/board.shape[1], min_height, mx_h4e, mn_h4e, board #trimmed_board
+    # Return normalized values
+    return n_bmps, n_max_height, n_avg_height, n_min_height, n_mx_h4e, n_mn_h4e
 
 def dfs(matrix, x, y, visited, value, fill=0):
 
@@ -158,7 +151,9 @@ def getHoles(board):
 
     trimboard += visited
 
-    return island_count, trimboard
+    max_holes = GP["rows"] * GP["cols"] / 2
+
+    return island_count/max_holes, trimboard
 
 def getOverhangs(board):
     overhangs = 0
@@ -171,7 +166,9 @@ def getOverhangs(board):
             if np.array_equal(window, pattern):
                 overhangs += 1
 
-    return overhangs
+    max_overhangs = GP["rows"] * GP["cols"] / 2
+
+    return overhangs / max_overhangs
 
 def getPointsForMove(state):
 
@@ -186,7 +183,11 @@ def getPointsForMove(state):
     linescores = [0, 40, 100, 300, 1200]
     cl_pnts = linescores[cl_rows]
 
-    return drops + cl_pnts
+    points = cl_pnts + drops
+
+    max_points = 1200 + GP['rows'] - 4
+
+    return points / max_points
 
 NUM_EVALS = 9
 def getEvals(state):
@@ -201,12 +202,14 @@ def getEvals(state):
     cleared_rows = np.sum(np.all(board != 0, axis=1))
     board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
 
-    bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e, board = getHeightParams(board) # Outputs trimmed board
+    bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e = getHeightParams()
 
     holes, board = getHoles(board)  # Outputs board with holes plugged with 2's
     overhangs = getOverhangs(board)
 
-    return bmps, max_height, avg_height, holes, overhangs, points, min_height, mx_h4e, mn_h4e
+    vals = np.array([bmps, max_height, avg_height, min_height, holes, overhangs, points, mx_h4e, mn_h4e])
+
+    return vals
 
 if __name__ == "__main__":
     print(getEvals((board, [])))

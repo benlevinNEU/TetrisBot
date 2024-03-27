@@ -1,12 +1,14 @@
 def encode(expression):
     # Added support for parentheses and arithmetic symbols
     replacements = {
+        'self.gauss': 'gs',
+        'np.ones_like(x)': '1b',
         '**': 'r',
-        ',': '_',
+        ',': '__',
+        '-': 'mi',
         '(': '-p',
         ')': 'p-',
         '+': 'pl',
-        '-': 'mi',
         '*': 'mu',
         '/': 'di',
         'cos': 'tc',
@@ -18,12 +20,14 @@ def encode(expression):
 
 def decode(encoded_expression):
     replacements = {
+        'gs': 'self.gauss',
+        '1b': 'np.ones_like(x)',
         'r': '**',
-        '_': ',',
+        '__': ',',
+        'mi': '-',
         '-p': '(',
         'p-': ')',
         'pl': '+',
-        'mi': '-',
         'mu': '*',
         'di': '/',
         'tc': 'cos',
@@ -38,11 +42,12 @@ import numpy as np
 if __name__ == "__main__":
     # Encoding
     original_expressions = np.array([
-        "x**2,x,1",
-        "(x+1)*(x-1)",
-        "x**3+x**2+x+1",
-        "sin(x)+cos(x)",
-        "(x/2)-(3*x)+5"
+        #"x**2,x,1",
+        #"(x+1)*(x-1)",
+        #"x**3+x**2+x+1",
+        #"sin(x)+cos(x)",
+        #"(x/2)-(3*x)+5",
+        "self.gauss(x),x,np.ones_like(x)",
     ])
 
     encoded_expressions = [encode(expr) for expr in original_expressions]

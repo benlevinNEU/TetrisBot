@@ -1,7 +1,8 @@
+from math import pi
 import numpy as np
 import pandas as pd
 import os, sys, time, cProfile, multiprocessing, platform, re
-from place_tetris import TetrisApp, COLS, ROWS
+from place_tetris import TetrisApp
 
 from multiprocessing import Manager, Pool, Value
 import concurrent.futures
@@ -55,7 +56,7 @@ tp = {
 }
 '''
 
-FT = eval(f"lambda x: np.array([{te.decode(TP["feature_transform"])}])")
+FT = eval(f"lambda self, x: np.column_stack([{te.decode(TP["feature_transform"])}])")
 MAX_WORKERS = TP["workers"] if TP["workers"] > 0 else multiprocessing.cpu_count()
 
 # Get the current directory
@@ -64,24 +65,28 @@ PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
-    def __init__(self, tp=TP, weights=[]):
-        ft = eval(f"lambda x: np.array([{te.decode(tp["feature_transform"])}])")
+    def __init__(self, tp=TP, weights=[], sigmas=np.ones(NUM_EVALS)*0.2, gen=1):
+        self.sigma = sigmas
+        ft = eval(f"lambda self, x: np.array([{te.decode(tp["feature_transform"])}])")
+        self.fts = ft(self, np.ones(NUM_EVALS)).shape[0]
         if len(weights) == 0:
-            weights = np.ones(ft(0).shape[0]*NUM_EVALS)
-        self.weights = weights.reshape(ft(0).shape[0], NUM_EVALS)
+            weights = np.ones(self.fts*NUM_EVALS)
+        self.weights = weights.reshape(self.fts, NUM_EVALS)
+        self.gen = gen
 
     def play(self, gp, pos, tp=TP):
-        self.game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
+        game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
         
         if gp["gui"]:
-            self.game.update_board()
+            game.update_board()
 
-        options = self.game.getFinalStates()
+        options = game.getFinalStates()
         gameover = False
         score = 0
         tot_cost = 0
         moves = 0
-        norm_c_grad = np.zeros(NUM_EVALS*(FT(0).shape[0]-1))
+        norm_c_grad = np.zeros(NUM_EVALS*self.fts)
+        norm_s_grad = np.zeros(NUM_EVALS)
 
         while not gameover and len(options) > 0 and moves < 10000: # Ends the game after 10000 moves
             min_cost = np.inf
@@ -92,18 +97,22 @@ class Model():
                 if option is None:
                     raise ValueError("Option is None")
 
-                c, c_grad = self.cost(option, tp)
+                c, w_grad, s_grad = self.cost(option, tp)
                 if c < min_cost:
                     min_cost = c
                     best_option = option
-                    min_c_grad = c_grad
+                    min_w_grad = w_grad
+                    min_s_grad = s_grad
+                    
 
             tot_cost += min_cost
-            norm_c_grad += min_c_grad
+            norm_c_grad += min_w_grad
+            norm_s_grad += min_s_grad
             moves += 1
-            options, game_over, score = self.game.ai_command(best_option)
+            options, game_over, score = game.ai_command(best_option)
 
-        cost_metrics = np.array([tot_cost/moves/score, *norm_c_grad/moves/score])
+        w_cost_metrics = np.array([tot_cost/moves/score, *norm_c_grad/moves/score])
+        s_cost_metrics = norm_s_grad/moves/score
 
         if moves == 10000:
             success_log = open(F"{CURRENT_DIR}success.log", "a")
@@ -111,44 +120,77 @@ class Model():
             success_log.write(f"{self.weights}")
             success_log.close()
 
-        self.game.quit_game()
-        return score, cost_metrics
+        game.quit_game()
+        return score, w_cost_metrics, s_cost_metrics
+    
+    def gauss(self, x, mu=0.5):
+        #print(f"sigma: {self.sigma}")
+        #selfprint(f"x: {x}")
+        return 1 / (self.sigma * np.sqrt(2 * np.pi)) * np.exp(-(x - mu)**2 / (2 * self.sigma**2))
 
-    def cost(self, state, tp):
-        vals = np.array(getEvals(state))
-        X = np.array([FT(x) for x in vals])
+    def sigma_grad(self, x, mu=0.5):
+        prefactor = -1 / (self.sigma**2) + ((x - mu)**2) / (self.sigma**4)
+        gaussian = 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * ((x - mu) / self.sigma)**2)
+        return prefactor * gaussian
+
+    def cost(self, state, tp=TP):
+        vals = getEvals(state)
+        X = FT(self, vals)
         costs = X * self.weights.T
-        return np.sum(costs), X[:,:-1].flatten() # Exclude bias term because not relevant for gradient descent
 
-    def mutate(self, gen, cm=None):
+        sigma_grad = np.zeros(NUM_EVALS)
+        if "self.gauss" in tp["feature_transform"]:
+            gWeights = self.weights[tp["feature_transform"].index("self.gauss")]
+            sigma_grad = self.sigma_grad(vals) * gWeights
 
-        FT_s = FT(0).shape[0]
-        if cm is None:
-            cm = np.ones((FT_s-1) * NUM_EVALS + 1)
+        return np.sum(costs), X.flatten(), sigma_grad
 
-        grad_mag = cm[0]
-        grad = cm[1:].reshape(FT_s-1, NUM_EVALS)
-        step = TP["learning_rate"](gen) * grad/grad_mag
+    def mutate(self, gen, w_cm=None, s_cm=None):
+
+        # TODO: Introduce momentum factor
+
+        if w_cm is None:
+            w_cm = np.ones(1 + self.fts * NUM_EVALS)
+
+        if s_cm is None:
+            s_cm = np.ones(NUM_EVALS)
+
+        w_grad_mag = w_cm[0]
+        w_grad = w_cm[1:].reshape(self.fts, NUM_EVALS)
+        w_step = TP["learning_rate"](gen) * w_grad/w_grad_mag
         
         nchildren = int(TP["population_size"] / TP["top_n"])
         children = []
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
-            new_weights[0:FT_s-1, 0:NUM_EVALS] += step # Can increase or decrease weights
+            new_weights += w_step # Can increase or decrease weights
             flat_weights = new_weights.flatten()
 
+            new_sigmas = self.sigma.copy()
+            new_sigmas += TP["s_learning_rate"](gen) * s_cm
+
+            # Random mutation introduction
             for i in range(len(flat_weights)):
                 if np.random.rand() < TP["mutation_rate"](gen):
+                    # Strong mutation if weight is 0
                     if flat_weights[i] == 0:
-                        strength = TP["mutation_strength"](gen) * 2
-                    elif (i+1) % FT_s != 0:
-                        strength = TP["mutation_strength"](gen) * 0.1
+                        strength = TP["mutation_strength"](gen) * 10
                     else:
                         strength = TP["mutation_strength"](gen)
-                    flat_weights[i] += strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
 
-            model = Model(weights=flat_weights)
+                    # Strengthen mutation for very old parents (max age factor is 100)
+                    age_factor = min(100, TP['age_factor'](gen - self.gen))
+                    flat_weights[i] += age_factor * strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
+
+            for i in range(len(new_sigmas)):
+                if np.random.rand() < TP["mutation_rate"](gen):
+                    age_factor = min(100, TP['age_factor'](gen - self.gen))
+                    new_sigmas[i] += age_factor * TP["s_mutation_strength"](gen) * (np.random.randn()*2 - 1)
+
+            new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
+
+            model = Model(weights=flat_weights, sigmas=new_sigmas)
             children.append(model)
 
         return pd.DataFrame(children, columns=['model'])
@@ -166,20 +208,25 @@ class Model():
         scores = np.zeros(plays)
         shape = self.weights.shape
         # 1 for score, rest for cost metrics not including bias term
-        cost_metrics_lst = np.zeros((plays, 1 + shape[1]*(shape[0]-1))) 
+        w_cost_metrics_lst = np.zeros((plays, 1 + shape[1]*shape[0])) 
+        s_cost_metrics_lst = np.zeros((plays, shape[1]))
         for i in range(plays):
-            score, cost_metrics = self.play(gp, pos, TP)
+            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
             scores[i] = score
-            cost_metrics_lst[i] = cost_metrics
+            w_cost_metrics_lst[i] = w_cost_metrics
+            s_cost_metrics_lst[i] = s_cost_metrics
+
 
         score = np.mean(scores)
-        cost_metrics = np.mean(cost_metrics_lst, axis=0)
+        w_cost_metrics = np.mean(w_cost_metrics_lst, axis=0)
+        s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
 
         df = pd.DataFrame({
             'score': [score],
             'model': [self],
             'weights': [self.weights.flatten()],
-            'cost_metrics': [cost_metrics]
+            'w_cost_metrics': [w_cost_metrics],
+            's_cost_metrics': [s_cost_metrics],
         })
 
         return df
@@ -188,7 +235,7 @@ class Model():
 def mutate_model(args):
     model_df, _, gen = args # id is not used
     model = Model(weights=model_df['weights'])
-    return model.mutate(gen, model_df['cost_metrics'])
+    return model.mutate(gen, model_df['w_cost_metrics'], model_df['s_cost_metrics'])
 
 # Method wrapperop  
 def evaluate_model(args):
@@ -336,11 +383,11 @@ def main(stdscr):
             
             top_models = saved_models_info.head(TP["top_n"]) # 2 Labels before weights (score, generation)
             population = pd.concat(pool_task_wrapper(
-                mutate_model, (top_models, generation), (profile, tid), "Mutating"), ignore_index=True)
+                mutate_model, (top_models, generation), (profile if MAX_WORKERS > 1 else False, tid), "Mutating"), ignore_index=True)
 
         # Evaluate all networks in parallel
         results = pool_task_wrapper(
-            evaluate_model, (population, TP["plays"], GP), (profile, tid), "Generation Running")
+            evaluate_model, (population, TP["plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Generation Running")
         raw_df = pd.concat(results, ignore_index=True)
         raw_df["gen"] = generation
         raw_df = raw_df.sort_values(by="score", ascending=False)
