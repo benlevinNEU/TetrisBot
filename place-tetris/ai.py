@@ -170,11 +170,11 @@ class Model():
             new_weights = self.weights.copy()
 
             # Assumes bias term is last term in weights and does not step gradient for bias term
-            new_weights[:-1, :] += w_step[:-1, :] # Can increase or decrease weights
+            new_weights[:-1, :] -= w_step[:-1, :] # Can increase or decrease weights
             #flat_weights = new_weights.flatten()
 
             new_sigmas = self.sigma.copy()
-            new_sigmas += s_step
+            new_sigmas -= s_step
 
             # Random mutation introduction
             for e in range(NUM_EVALS):
@@ -191,8 +191,7 @@ class Model():
                         mutation = np.random.normal(0, strength, 1)[0] # Can increase or decrease weights
                         
                         # TODO: Regularize mutation
-                        #reg_mutation = mutation * w_step[i].flatten() # Regularize mutation
-                        new_weights[e,f] += mutation * age_factor #reg_mutation
+                        new_weights[e,f] += mutation * age_factor
 
             for i in range(len(new_sigmas)):
                 if np.random.rand() < TP["mutation_rate"](gen):
@@ -245,7 +244,6 @@ class Model():
 
 # Method wrapper
 def mutate_model(args):
-
     model_df, _, gen = args # id is not used
     weights = model_df['weights'].reshape([NUM_EVALS, int(len(model_df['weights'])/NUM_EVALS)])
     model = Model(weights=weights, sigmas=model_df['sigmas'], gen=model_df['gen'])

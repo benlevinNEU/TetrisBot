@@ -33,7 +33,7 @@ data = pd.read_parquet(models_data_file)
 weights = data.sort_values(by="score", ascending=False)["weights"].iloc[0]
 sigmas = data.sort_values(by="score", ascending=False)["sigmas"].iloc[0]
 
-model = Model(tp, weights, sigmas, 1)
+model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 
 print(weights.reshape(nft, NUM_EVALS).T)
 print(sigmas)
