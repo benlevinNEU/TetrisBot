@@ -115,7 +115,8 @@ class Model():
             moves += 1
             options, game_over, score = game.ai_command(best_option)
 
-        w_cost_metrics = np.array([tot_cost/moves/score, *norm_c_grad/moves/score])
+        # Return the absolute value of the average cost per move and the average gradient
+        w_cost_metrics = np.array([abs(tot_cost/moves/score), *norm_c_grad/moves/score])
         s_cost_metrics = norm_s_grad/moves/score
 
         if moves == 10000:
@@ -159,9 +160,12 @@ class Model():
         if s_cm is None:
             s_cm = np.ones(NUM_EVALS)
 
-        w_grad_mag = w_cm[0]
+        av_cost = w_cm[0]
         w_grad = w_cm[1:].reshape(self.fts, NUM_EVALS)
-        w_step = TP["learning_rate"](gen) * w_grad/w_grad_mag
+
+        # Regularize gradient step scale largest step to the learning rate
+        w_step = TP["learning_rate"](gen)/np.max(abs(w_grad/self.weights)) * w_grad
+        s_step = TP["s_learning_rate"](gen)/np.max(abs(s_cm/self.sigma)) * s_cm
         
         nchildren = int(TP["population_size"] / TP["top_n"])
         children = []
@@ -172,7 +176,7 @@ class Model():
             flat_weights = new_weights.flatten()
 
             new_sigmas = self.sigma.copy()
-            new_sigmas += TP["s_learning_rate"](gen) * s_cm
+            new_sigmas += s_step
 
             # Random mutation introduction
             for i in range(len(flat_weights)):
@@ -185,12 +189,17 @@ class Model():
 
                     # Strengthen mutation for very old parents (max age factor is 100)
                     age_factor = min(100, TP['age_factor'](gen - self.gen))
-                    flat_weights[i] += age_factor * strength * (np.random.randn()*2 - 1) # Can increase or decrease weights
+                    mutation = np.random.normal(0, strength, 1)[0] # Can increase or decrease weights
+                    
+                    # TODO: Regularize mutation
+                    #reg_mutation = mutation * w_step[i].flatten() # Regularize mutation
+                    flat_weights[i] += mutation * age_factor #reg_mutation
 
             for i in range(len(new_sigmas)):
                 if np.random.rand() < TP["mutation_rate"](gen):
                     age_factor = min(100, TP['age_factor'](gen - self.gen))
-                    new_sigmas[i] += age_factor * TP["s_mutation_strength"](gen) * (np.random.randn()*2 - 1)
+                    strength = TP["s_mutation_strength"](gen)
+                    new_sigmas[i] += age_factor * np.random.normal(0, strength, 1)[0]
 
             new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
 
@@ -238,6 +247,7 @@ class Model():
 
 # Method wrapper
 def mutate_model(args):
+
     model_df, _, gen = args # id is not used
     model = Model(weights=model_df['weights'], sigmas=model_df['sigmas'], gen=model_df['gen'])
     return model.mutate(gen, model_df['w_cost_metrics'], model_df['s_cost_metrics'])
