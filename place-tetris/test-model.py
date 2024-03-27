@@ -17,7 +17,7 @@ game_params = {
 }
 
 tp = {
-    "feature_transform": "x**2,x,1",
+    "feature_transform": "self.gauss(x),x,np.ones_like(x)",
 }
 
 #weights = np.array([3.9304998446226453, 0.6278212056361121, 30.518039583961556, 34.5815676211182, 27.326096925153074, -3.208231649499382])
@@ -31,10 +31,12 @@ models_data_file = os.path.join(MODELS_DIR, file_name)
 
 data = pd.read_parquet(models_data_file)
 weights = data.sort_values(by="score", ascending=False)["weights"].iloc[0]
+sigmas = data.sort_values(by="score", ascending=False)["sigmas"].iloc[0]
 
-model = Model(tp, weights)
+model = Model(tp, weights, sigmas, 1)
 
 print(weights.reshape(nft, NUM_EVALS).T)
+print(sigmas)
 
 game_params = {
     "gui": True,  # Set to True to visualize the game
@@ -45,5 +47,5 @@ game_params = {
     "sleep": 0.01
 }
 
-score, _ = model.play(game_params, (0,0), tp)
+score, _, _ = model.play(game_params, (0,0), tp)
 print(score)

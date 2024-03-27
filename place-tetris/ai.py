@@ -229,6 +229,7 @@ class Model():
             'score': [score],
             'model': [self],
             'weights': [self.weights.flatten()],
+            'sigmas': [self.sigma],
             'w_cost_metrics': [w_cost_metrics],
             's_cost_metrics': [s_cost_metrics],
         })
@@ -238,7 +239,7 @@ class Model():
 # Method wrapper
 def mutate_model(args):
     model_df, _, gen = args # id is not used
-    model = Model(weights=model_df['weights'])
+    model = Model(weights=model_df['weights'], sigmas=model_df['sigmas'], gen=model_df['gen'])
     return model.mutate(gen, model_df['w_cost_metrics'], model_df['s_cost_metrics'])
 
 # Method wrapperop  
