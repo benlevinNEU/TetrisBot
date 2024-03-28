@@ -53,10 +53,11 @@ TP = {
     "momentum": [0.9, 0.1],
     "profile": True,
     "workers": 8,
-    "feature_transform": "self.gauss(x),x,np.ones_like(x)",
-    "learning_rate": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.1,
-    "s_learning_rate": lambda gen: 0.01 * np.exp(-0.002 * gen) + 0.1,
-    "age_factor": lambda age: 0.1 * np.exp(0.05 * age) + 1
+    "feature_transform": "x,1/(x+0.1),np.ones_like(x)",
+    "learning_rate": lambda gen: 0.8 * np.exp(-0.002 * gen) + 0.1,
+    "s_learning_rate": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.1,
+    "age_factor": lambda age: 0.1 * np.exp(0.05 * age) + 1,
+    "p_random": 0.1
 }
 '''
 
