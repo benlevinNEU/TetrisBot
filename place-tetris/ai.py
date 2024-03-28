@@ -1,6 +1,7 @@
 from math import pi
 import numpy as np
 import pandas as pd
+from scipy import stats
 import os, sys, time, cProfile, multiprocessing, platform, re
 from place_tetris import TetrisApp
 
@@ -46,7 +47,7 @@ TP = {
     "population_size": 100,
     "top_n": 20,
     "generations": 1000,
-    "plays": 2,
+    "max_plays": 30,
     "mutation_rate": lambda gen: 0.5 * np.exp(-0.002 * gen) + 0.1,
     "mutation_strength": lambda gen: 0.3 * np.exp(-0.002 * gen) + 0.1,
     "s_mutation_strength": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.02,
@@ -80,6 +81,7 @@ class Model():
 
         self.weights = weights
         self.gen = gen
+        self.tp = tp
 
     def play(self, gp, pos, tp=TP):
         game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
@@ -94,6 +96,9 @@ class Model():
         moves = 0
         norm_c_grad = np.zeros([NUM_EVALS, self.fts]) #TODO: Check if this is correct
         norm_s_grad = np.zeros(NUM_EVALS)
+
+        eval_labels = getEvalLabels()
+        #print(" ".join(eval_labels)) # TODO: Comment out
 
         while not gameover and len(options) > 0 and moves < 10000: # Ends the game after 10000 moves
             min_cost = np.inf
@@ -110,6 +115,8 @@ class Model():
                     best_option = option
                     min_w_grad = w_grad
                     min_s_grad = s_grad
+
+            #print(" ".join(f"{val:.5f}" for val in w_grad[:,0]))  # TODO: Comment out
                     
             tot_cost += min_cost
             norm_c_grad += min_w_grad
@@ -164,6 +171,8 @@ class Model():
     def mutate(self, gen, w_grad=None, s_cm=None):
 
         # TODO: Introduce momentum factor
+        # TODO: Regularize gradient step to percentage of max weight
+        # TODO: Regularize mutation strength to percentage of max weight
 
         if w_grad is None:
             w_grad = np.ones([NUM_EVALS, self.fts])
@@ -183,9 +192,16 @@ class Model():
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
-            # Assumes bias term is last term in weights and does not step gradient for bias term
-            new_weights[:, :-1] -= w_step[:, :-1] # Can increase or decrease weights
-            #flat_weights = new_weights.flatten()
+            # Check if bias term is included in feature transform
+            if "np.ones_like(x)" in self.tp["feature_transform"]:
+                bias_start = self.tp["feature_transform"].index("np.ones_like(x)")
+                index = np.sum([1 for char in self.tp["feature_transform"][:bias_start] if char == ','])
+
+                # Excludes bias term from stepping gradient
+                new_weights[:, np.arange(new_weights.shape[1]) != index] += w_step[:, np.arange(new_weights.shape[1]) != index]
+
+            else:
+                new_weights += w_step
 
             new_sigmas = self.sigma.copy()
             new_sigmas -= s_step
@@ -214,6 +230,7 @@ class Model():
             new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
 
             model = Model(weights=new_weights, sigmas=new_sigmas)
+            model.tp = None # Remove reference to TP for pickling
             children.append(model)
 
         return pd.DataFrame(children, columns=['model'])
@@ -239,8 +256,11 @@ class Model():
             w_cost_metrics_lst[i] = w_cost_metrics
             s_cost_metrics_lst[i] = s_cost_metrics
 
-        score = np.mean(scores)
-        h = np.mean(w_cost_metrics_lst, axis=0)
+            if not playMore(scores):
+                break
+
+        score = expectedScore(scores)
+        # TODO: Should I trim gradients as well or just the score?
         s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
 
         df = pd.DataFrame({
@@ -253,6 +273,36 @@ class Model():
         })
 
         return df
+
+# Method to play more games if the standard deviation is not stable
+def playMore(scores, threshold=0.0075, max_count=TP["max_plays"]):
+
+    if len(scores) < 5:
+        return max_count  # Not enough data to make a decision
+
+    new_std = np.std(scores)
+    prev_std = np.std(scores[:-1])
+    if abs(new_std - prev_std) / prev_std < threshold:
+        return False  # The number of games where the estimate stabilized
+
+    return True  # Return the max games if the threshold is never met
+
+# Method to calculate expected score
+def expectedScore(scores):
+    std = np.std(scores)
+    samples = len(scores)
+
+    # Base prop
+    base_prop = 0.2
+
+    # Adjust the proportion based on the standard deviation and sample size
+    # This is a simple heuristic and can be adjusted based on empirical testing
+    prop = base_prop * std / np.sqrt(samples)
+
+    # Ensure the proportion is within a sensible range, e.g., 0.01 to 0.25
+    prop = max(0.01, min(prop, 0.25))
+
+    return np.mean(stats.mstats.winsorize(scores, limits=(prop, prop)))
 
 # Method wrapper
 def mutate_model(args):
@@ -375,11 +425,10 @@ def main(stdscr):
 
     print("Starting Evolutionary Training")
 
-
     ## Load or Initialize Population
     ft = TP["feature_transform"] # Number of feature transforms
     #file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.npy"
-    file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}_{TP['plays']}.parquet"
+    file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
     print(f"\rSaving data to: \n\r{MODELS_DIR}{file_name}\n\r")
 
     def prev_data_exists(model_dir):
@@ -401,7 +450,9 @@ def main(stdscr):
             # Create randomly initialized population
             population = pd.DataFrame([], columns=['model'])
             for _ in range(TP["population_size"]):
-                population = pd.concat([population, pd.DataFrame([Model(tp=init_tp)], columns=['model'])], ignore_index=True)
+                model = Model(tp=init_tp)
+                model.tp = None # Remove reference to TP for pickling
+                population = pd.concat([population, pd.DataFrame([model], columns=['model'])], ignore_index=True)
 
             saved_models_info = pd.DataFrame([])
 
@@ -418,11 +469,13 @@ def main(stdscr):
 
             rand_restart = int(TP["population_size"] * TP["p_random"])
             for _ in range(rand_restart):
-                population = pd.concat([population, pd.DataFrame([Model(gen=generation)], columns=['model'])], ignore_index=True)
+                model = Model(gen=generation)
+                model.tp = None # Remove reference to TP for pickling
+                population = pd.concat([population, pd.DataFrame([model], columns=['model'])], ignore_index=True)
 
         # Evaluate all networks in parallel
         results = pool_task_wrapper(
-            evaluate_model, (population, TP["plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Generation Running")
+            evaluate_model, (population, TP["max_plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Generation Running")
         raw_df = pd.concat(results, ignore_index=True)
         raw_df["gen"] = generation
         raw_df = raw_df.sort_values(by="score", ascending=False)

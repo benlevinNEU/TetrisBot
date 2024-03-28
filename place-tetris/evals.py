@@ -59,7 +59,7 @@ test_holes = np.array([[0, 0, 0, 0],
                        [0, 1, 1, 0]])
                        
 
-def getHeightParams():
+def getHeightParams(board):
     bmps = 0
     max_height = 0
     min_height = np.inf
@@ -202,7 +202,7 @@ def getEvals(state):
     cleared_rows = np.sum(np.all(board != 0, axis=1))
     board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
 
-    bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e = getHeightParams()
+    bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e = getHeightParams(board)
 
     holes, board = getHoles(board)  # Outputs board with holes plugged with 2's
     overhangs = getOverhangs(board)
@@ -210,6 +210,9 @@ def getEvals(state):
     vals = np.array([bmps, max_height, avg_height, min_height, holes, overhangs, points, mx_h4e, mn_h4e])
 
     return vals
+
+def getEvalLabels():
+    return ["bmps   ", "mx_h   ", "av_h   ", "mn_h   ", "holes  ", "ovhangs", "points ", "mx_h4e ", "mn_h4e  "]
 
 if __name__ == "__main__":
     print(getEvals((board, [])))

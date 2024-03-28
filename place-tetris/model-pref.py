@@ -10,7 +10,7 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 from local_params import GP, TP
 ft = TP["feature_transform"]
 nft = ft.count(',') + 1
-file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}_{TP['plays']}.parquet"
+file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
 topN = TP["top_n"]
@@ -46,7 +46,7 @@ def plot_model_performance(file, ax, lines):
     data = data.sort_values(by="score", ascending=False)
     data = data[["gen", "score"]].values
 
-    generations = int(np.max(data[:, 0]))
+    generations = int(np.max(data[:, 0])) + 1
     i_s = np.array([0])
     init = np.vstack((i_s, np.zeros((generations, 1))))
 
@@ -68,14 +68,14 @@ def plot_model_performance(file, ax, lines):
 
 
     # Update the data for each plot line
-    x = np.linspace(1,generations,generations)
+    x = np.linspace(0,generations-1,generations)
     lines["best_score"].set_data(x, best_score.ravel()[:-1])
     lines["average_top5"].set_data(x, average_score_of_topN.ravel()[:-1])
     lines["best_score_in_gen"].set_data(x, best_score_in_gen.ravel()[:-1])
     lines["average_score_in_gen"].set_data(x, average_score_in_gen.ravel()[:-1])
 
     # Adjust the x-axis and y-axis limits
-    ax.set_xlim(0, generations)
+    ax.set_xlim(0, generations-1)
     ax.set_ylim(0, np.max([best_score, average_score_of_topN, best_score_in_gen, average_score_in_gen]) * 1.1)
 
     # Redraw the plot
