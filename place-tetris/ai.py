@@ -277,7 +277,7 @@ class Model():
 # Method to play more games if the standard deviation is not stable
 def playMore(scores, threshold=0.0075, max_count=TP["max_plays"]):
 
-    if len(scores) < 5:
+    if len(scores) < 10:
         return max_count  # Not enough data to make a decision
 
     new_std = np.std(scores)

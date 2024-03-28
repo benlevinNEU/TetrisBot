@@ -1,5 +1,6 @@
 from random import randrange as rand
 import numpy as np
+
 import sys, os
 
 def print_board(board):
