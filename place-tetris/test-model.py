@@ -17,13 +17,14 @@ game_params = {
 }
 
 tp = {
-    "feature_transform": "self.gauss(x),x,np.ones_like(x)",
+    "feature_transform": "x,1/(x+0.1),np.ones_like(x)",
+    "plays": 20
 }
 
 #weights = np.array([3.9304998446226453, 0.6278212056361121, 30.518039583961556, 34.5815676211182, 27.326096925153074, -3.208231649499382])
 ft = tp["feature_transform"]
 nft = ft.count(',') + 1
-file_name = f"models_{game_params['rows']}x{game_params['cols']}_{te.encode(ft)}.parquet"
+file_name = f"models_{game_params['rows']}x{game_params['cols']}_{te.encode(ft)}_{tp['plays']}.parquet"
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
@@ -36,7 +37,8 @@ sigmas = data.sort_values(by="score", ascending=False)["sigmas"].iloc[0]
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 
 print(weights.reshape(nft, NUM_EVALS).T)
-print(sigmas)
+if "gauss" in ft:
+    print(sigmas)
 
 game_params = {
     "gui": True,  # Set to True to visualize the game
