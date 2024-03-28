@@ -10,7 +10,7 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 from local_params import GP, TP
 ft = TP["feature_transform"]
 nft = ft.count(',') + 1
-file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
+file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}_{TP['plays']}.parquet"
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
 topN = TP["top_n"]

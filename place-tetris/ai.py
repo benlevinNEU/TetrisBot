@@ -69,12 +69,14 @@ PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
-    def __init__(self, tp=TP, weights=[], sigmas=np.ones(NUM_EVALS)*0.2, gen=1):
+    def __init__(self, tp=TP, weights=[], sigmas=np.random.uniform(0.01, 0.99, NUM_EVALS), gen=1):
         self.sigma = sigmas
         ft = eval(f"lambda self, x: np.array([{te.decode(tp["feature_transform"])}])")
         self.fts = ft(self, np.ones(NUM_EVALS)).shape[0]
+
         if len(weights) == 0:
-            weights = np.ones([NUM_EVALS, self.fts])
+            weights = np.random.uniform(-15, 15, [NUM_EVALS, self.fts])
+
         self.weights = weights
         self.gen = gen
 
@@ -108,16 +110,24 @@ class Model():
                     min_w_grad = w_grad
                     min_s_grad = s_grad
                     
-
             tot_cost += min_cost
             norm_c_grad += min_w_grad
-            norm_s_grad += min_s_grad
+
+            if min_s_grad is None:
+                norm_s_grad = None
+            else:
+                norm_s_grad += min_s_grad
+
             moves += 1
             options, game_over, score = game.ai_command(best_option)
 
         # Return the absolute value of the average cost per move and the average gradient
         w_cost_metrics = norm_c_grad/moves/score
-        s_cost_metrics = norm_s_grad/moves/score
+
+        if norm_s_grad is None:
+            s_cost_metrics = None
+        else:
+            s_cost_metrics = norm_s_grad/moves/score
 
         if moves == 10000:
             success_log = open(F"{CURRENT_DIR}success.log", "a")
@@ -143,7 +153,7 @@ class Model():
         X = FT(self, vals)
         costs = X * self.weights
 
-        sigma_grad = np.zeros(NUM_EVALS)
+        sigma_grad = None
         if "self.gauss" in tp["feature_transform"]:
             gWeights = self.weights[:, tp["feature_transform"].index("self.gauss")]
             sigma_grad = self.sigma_grad(vals) * gWeights
@@ -164,13 +174,13 @@ class Model():
         w_step = TP["learning_rate"](gen)/np.max(abs(w_grad/self.weights)) * w_grad
         s_step = TP["s_learning_rate"](gen)/np.max(abs(s_cm/self.sigma)) * s_cm
         
-        nchildren = int(TP["population_size"] / TP["top_n"])
+        nchildren = int(TP["population_size"] * (1 - TP["p_random"]) / TP["top_n"])
         children = []
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
             # Assumes bias term is last term in weights and does not step gradient for bias term
-            new_weights[:-1, :] -= w_step[:-1, :] # Can increase or decrease weights
+            new_weights[:, :-1] -= w_step[:, :-1] # Can increase or decrease weights
             #flat_weights = new_weights.flatten()
 
             new_sigmas = self.sigma.copy()
@@ -367,7 +377,7 @@ def main(stdscr):
     ## Load or Initialize Population
     ft = TP["feature_transform"] # Number of feature transforms
     #file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.npy"
-    file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}.parquet"
+    file_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}_{TP['plays']}.parquet"
     print(f"\rSaving data to: \n\r{MODELS_DIR}{file_name}\n\r")
 
     def prev_data_exists(model_dir):
@@ -384,7 +394,13 @@ def main(stdscr):
         if not exists:
             init_tp = TP.copy()
             init_tp["top_n"] = 1
-            population = Model(tp=init_tp).mutate(0)
+            #population = Model(tp=init_tp).mutate(0)
+            
+            # Create randomly initialized population
+            population = pd.DataFrame([], columns=['model'])
+            for _ in range(TP["population_size"]):
+                population = pd.concat([population, pd.DataFrame([Model(tp=init_tp)], columns=['model'])], ignore_index=True)
+
             saved_models_info = pd.DataFrame([])
 
         else:
@@ -397,6 +413,10 @@ def main(stdscr):
             top_models = saved_models_info.head(TP["top_n"]) # 2 Labels before weights (score, generation)
             population = pd.concat(pool_task_wrapper(
                 mutate_model, (top_models, generation), (profile if MAX_WORKERS > 1 else False, tid), "Mutating"), ignore_index=True)
+
+            rand_restart = int(TP["population_size"] * TP["p_random"])
+            for _ in range(rand_restart):
+                population = pd.concat([population, pd.DataFrame([Model(gen=generation)], columns=['model'])], ignore_index=True)
 
         # Evaluate all networks in parallel
         results = pool_task_wrapper(
