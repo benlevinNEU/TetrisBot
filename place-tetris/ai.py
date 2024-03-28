@@ -166,6 +166,9 @@ class Model():
         
         nchildren = int(TP["population_size"] / TP["top_n"])
         children = []
+        age_factor = min(100, TP['age_factor'](gen - self.gen))
+        w_strength = TP["mutation_strength"](gen)
+        s_strength = TP["s_mutation_strength"](gen)
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
@@ -182,9 +185,9 @@ class Model():
                     if np.random.rand() < TP["mutation_rate"](gen):
                         # Strong mutation if weight is 0
                         if new_weights[e,f] == 0:
-                            strength = TP["mutation_strength"](gen) * 10
+                            strength = w_strength * 10
                         else:
-                            strength = TP["mutation_strength"](gen)
+                            strength = w_strength
 
                         # Strengthen mutation for very old parents (max age factor is 100)
                         age_factor = min(100, TP['age_factor'](gen - self.gen))
@@ -195,9 +198,7 @@ class Model():
 
             for i in range(len(new_sigmas)):
                 if np.random.rand() < TP["mutation_rate"](gen):
-                    age_factor = min(100, TP['age_factor'](gen - self.gen))
-                    strength = TP["s_mutation_strength"](gen)
-                    new_sigmas[i] += age_factor * np.random.normal(0, strength, 1)[0]
+                    new_sigmas[i] += age_factor * np.random.normal(0, s_strength, 1)[0]
 
             new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
 
