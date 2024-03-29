@@ -22,15 +22,15 @@ def init_plot():
     plt.ion()  # Turn on interactive mode
     fig, ax = plt.subplots(figsize=(12, 8))
     lines = {
-        "best_score": ax.plot([], [], label='Best Score', linestyle='-', color='green')[0],
+        "best_rank": ax.plot([], [], label='Best Score', linestyle='-', color='green')[0],
         "average_top5": ax.plot([], [], label=f'Average Score of Top {topN} Models', linestyle='-', color='blue')[0],
-        "best_score_in_gen": ax.plot([], [], label='Best Score In Gen', linestyle='-', color='orange')[0],
-        "average_score_in_gen": ax.plot([], [], label='Average Score in Gen', linestyle='-', color='red')[0]
+        "best_rank_in_gen": ax.plot([], [], label='Best Score In Gen', linestyle='-', color='orange')[0],
+        "average_rank_in_gen": ax.plot([], [], label='Average Score in Gen', linestyle='-', color='red')[0]
     }
 
     ax.set_title('Model Performance Over Generations')
     ax.set_xlabel('Generation')
-    ax.set_ylabel('Score')
+    ax.set_ylabel('Rank')
     ax.legend()
     ax.grid(True)
 
@@ -43,8 +43,8 @@ def plot_model_performance(file, ax, lines):
             break
         except:
             time.sleep(1)
-    data = data.sort_values(by="score", ascending=False)
-    data = data[["gen", "score"]].values
+    data = data.sort_values(by="rank", ascending=False)
+    data = data[["gen", "rank"]].values
 
     generations = int(np.max(data[:, 0])) + 1
     i_s = np.array([0])
@@ -69,10 +69,10 @@ def plot_model_performance(file, ax, lines):
 
     # Update the data for each plot line
     x = np.linspace(0,generations-1,generations)
-    lines["best_score"].set_data(x, best_score.ravel()[:-1])
+    lines["best_rank"].set_data(x, best_score.ravel()[:-1])
     lines["average_top5"].set_data(x, average_score_of_topN.ravel()[:-1])
-    lines["best_score_in_gen"].set_data(x, best_score_in_gen.ravel()[:-1])
-    lines["average_score_in_gen"].set_data(x, average_score_in_gen.ravel()[:-1])
+    lines["best_rank_in_gen"].set_data(x, best_score_in_gen.ravel()[:-1])
+    lines["average_rank_in_gen"].set_data(x, average_score_in_gen.ravel()[:-1])
 
     # Adjust the x-axis and y-axis limits
     ax.set_xlim(0, generations-1)
