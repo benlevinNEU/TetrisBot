@@ -158,7 +158,7 @@ class Model():
 
     def cost(self, state, tp=TP):
         vals = getEvals(state)
-          
+        X = FT(self, vals)
         costs = X * self.weights
 
         sigma_grad = None
