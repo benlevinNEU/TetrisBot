@@ -94,7 +94,7 @@ class Model():
         score = 0
         tot_cost = 0
         moves = 0
-        norm_c_grad = np.zeros([NUM_EVALS, self.fts]) #TODO: Check if this is correct
+        norm_c_grad = np.zeros([NUM_EVALS, self.fts])
         norm_s_grad = np.zeros(NUM_EVALS)
 
         eval_labels = getEvalLabels()
@@ -158,7 +158,7 @@ class Model():
 
     def cost(self, state, tp=TP):
         vals = getEvals(state)
-        X = FT(self, vals)
+          
         costs = X * self.weights
 
         sigma_grad = None
@@ -171,8 +171,6 @@ class Model():
     def mutate(self, gen, w_grad=None, s_cm=None):
 
         # TODO: Introduce momentum factor
-        # TODO: Regularize gradient step to percentage of max weight
-        # TODO: Regularize mutation strength to percentage of max weight
 
         if w_grad is None:
             w_grad = np.ones([NUM_EVALS, self.fts])
@@ -181,18 +179,24 @@ class Model():
             s_cm = np.ones(NUM_EVALS)
 
         # Regularize gradient step scale largest step to the learning rate
-        w_step = TP["learning_rate"](gen)/np.max(abs(w_grad/self.weights)) * w_grad
-        s_step = TP["s_learning_rate"](gen)/np.max(abs(s_cm/self.sigma)) * s_cm
+        w_l2 = np.linalg.norm(self.weights)
+        w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad)
+
+        s_l2 = np.linalg.norm(self.sigma)
+        s_step = TP["s_learning_rate"](gen) * s_l2 * s_cm/np.linalg.norm(s_cm)
         
         nchildren = int(TP["population_size"] * (1 - TP["p_random"]) / TP["top_n"])
         children = []
         age_factor = min(100, TP['age_factor'](gen - self.gen))
-        w_strength = TP["mutation_strength"](gen)
-        s_strength = TP["s_mutation_strength"](gen)
+
+        # Regularize mutation
+        w_strength = TP["mutation_strength"](gen) * w_l2
+        s_strength = TP["s_mutation_strength"](gen) * s_l2
         for _ in range(nchildren):
             new_weights = self.weights.copy()
 
             # Check if bias term is included in feature transform
+            index = None
             if "np.ones_like(x)" in self.tp["feature_transform"]:
                 bias_start = self.tp["feature_transform"].index("np.ones_like(x)")
                 index = np.sum([1 for char in self.tp["feature_transform"][:bias_start] if char == ','])
@@ -216,11 +220,14 @@ class Model():
                         else:
                             strength = w_strength
 
+                        # Strengthen mutation for bias
+                        if (index is not None) and (f == index):
+                            strength *= 5
+
                         # Strengthen mutation for very old parents (max age factor is 100)
                         age_factor = min(100, TP['age_factor'](gen - self.gen))
                         mutation = np.random.normal(0, strength, 1)[0] # Can increase or decrease weights
                         
-                        # TODO: Regularize mutation
                         new_weights[e,f] += mutation * age_factor
 
             for i in range(len(new_sigmas)):
@@ -259,7 +266,8 @@ class Model():
             if not playMore(scores):
                 break
 
-        score = expectedScore(scores)
+        # Trim to only played games before calculating expected score
+        score = expectedScore(scores[:i+1])
         # TODO: Should I trim gradients as well or just the score?
         s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
 
@@ -275,7 +283,8 @@ class Model():
         return df
 
 # Method to play more games if the standard deviation is not stable
-def playMore(scores, threshold=0.0075, max_count=TP["max_plays"]):
+# TODO: Might need to develop algo to tune theshold value
+def playMore(scores, threshold=0.003, max_count=TP["max_plays"]):
 
     if len(scores) < 10:
         return max_count  # Not enough data to make a decision
@@ -288,12 +297,23 @@ def playMore(scores, threshold=0.0075, max_count=TP["max_plays"]):
     return True  # Return the max games if the threshold is never met
 
 # Method to calculate expected score
+# Scores from models have high stdev and mean has heavy right skew
 def expectedScore(scores):
+
+    x = np.linspace(np.min(scores), np.max(scores), 100)
+    shape_lognorm, loc_lognorm, scale_lognorm = stats.lognorm.fit(scores, floc=0)
+    #p_lognorm = stats.lognorm.pdf(x, shape_lognorm, loc_lognorm, scale_lognorm)
+    med_lognorm = stats.lognorm.ppf(0.5, shape_lognorm, loc_lognorm, scale_lognorm)
+    return med_lognorm
+
+    '''
     std = np.std(scores)
     samples = len(scores)
 
     # Base prop
     base_prop = 0.2
+
+    # TODO: WIll need to tune this bc prop is never being adjusted bc std is always very large
 
     # Adjust the proportion based on the standard deviation and sample size
     # This is a simple heuristic and can be adjusted based on empirical testing
@@ -303,6 +323,7 @@ def expectedScore(scores):
     prop = max(0.01, min(prop, 0.25))
 
     return np.mean(stats.mstats.winsorize(scores, limits=(prop, prop)))
+    '''
 
 # Method wrapper
 def mutate_model(args):
@@ -372,10 +393,18 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
         # Execute the task function sequentiallyodel
         for id, model in args[0].iterrows():
             ret_list.append(func((model, id, *args[1:])))
+            progress = (count / len(args[0])) * 100
+
+            # Prints the progress percentage with appropriate task label
+            e_time = time.time() - start_time
+            sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed Time / Estimate (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
+            sys.stdout.flush()
+
     else:
         # Execute the task function
         with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
             # Grabs the models from the first arg and assigns an id to each model before submitting
+            start_time = time.time()  # Assign a valid value to start_time
             futures = [executor.submit(
                 func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
@@ -383,9 +412,15 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
             for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
                 progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
-                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%             \r") # Overwrites the line
+                e_time = time.time() - start_time
+                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed Time / Estimate (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
                 sys.stdout.flush()
                 ret_list.append(future.result())
+
+    # Write elapsed time such that it isn't overritten by the generation number and score once leaving the pool task wrapper
+    # I did this so I didn't have to handle packaging it in the result
+    sys.stdout.write(f"                                   Elapsed Time (s): {e_time:.0f}             \r") # Overwrites the line
+    sys.stdout.flush()
 
     return ret_list
 
@@ -482,7 +517,7 @@ def main(stdscr):
 
         # Select top score
         top_score = raw_df.iloc[0]["score"]
-        print(f"Generation {generation}: Top Score = {top_score}\r")
+        print(f"Generation {generation}: Top Score = {top_score:.1f}\r")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = pd.concat([saved_models_info, raw_df])
