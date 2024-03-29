@@ -80,8 +80,9 @@ game_params = {
 
 PLAY_ONCE = False
 
+ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
-    score, _, _ = model.play(game_params, (0,0), tp)
+    score, _, _ = model.play(game_params, (0,0), tp, ft)
     print(f"Score: {score}")
     exit()
 
@@ -93,7 +94,7 @@ for iter in range(iters):
     print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Std':^{di}} {'Dev':^{di}}")
     scores = np.ones(tp["max_plays"])
     for i in range(tp["max_plays"]):
-        score, _, _ = model.play(game_params, (0,0), tp)
+        score, _, _ = model.play(game_params, (0,0), tp, ft)
         scores[i] = score
 
         print(f"{score:{di}.1f}", end=" ")
@@ -182,7 +183,8 @@ for i in range(iters):
 
     shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
     p_lognorm = lognorm.pdf(x, shape_lognorm, loc_lognorm, scale_lognorm)
-    med_lognorm = lognorm.ppf(0.5, shape_lognorm, loc_lognorm, scale_lognorm)
+    #med_lognorm = lognorm.ppf(0.5, shape_lognorm, loc_lognorm, scale_lognorm)
+    med_lognorm = scale_lognorm
     # Grade the log-normal distribution
     log_likelihood_lognorm = np.sum(lognorm.logpdf(scores, shape_lognorm, loc_lognorm, scale_lognorm))
     aic_lognorm = 2*3 - 2*log_likelihood_lognorm

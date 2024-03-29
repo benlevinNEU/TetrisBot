@@ -83,7 +83,7 @@ class Model():
         self.gen = gen
         self.tp = tp
 
-    def play(self, gp, pos, tp=TP):
+    def play(self, gp, pos, tp=TP, ft=FT):
         game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
         
         if gp["gui"]:
@@ -109,7 +109,7 @@ class Model():
                 if option is None:
                     raise ValueError("Option is None")
 
-                c, w_grad, s_grad = self.cost(option, tp)
+                c, w_grad, s_grad = self.cost(option, tp, ft)
                 if c < min_cost:
                     min_cost = c
                     best_option = option
@@ -156,9 +156,9 @@ class Model():
         gaussian = 1 / np.sqrt(2 * np.pi) * np.exp(-0.5 * ((x - mu) / self.sigma)**2)
         return prefactor * gaussian
 
-    def cost(self, state, tp=TP):
+    def cost(self, state, tp=TP, ft=FT):
         vals = getEvals(state)
-        X = FT(self, vals)
+        X = ft(self, vals)
         costs = X * self.weights
 
         sigma_grad = None
@@ -258,7 +258,7 @@ class Model():
         w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
         s_cost_metrics_lst = np.zeros((plays, shape[0]))
         for i in range(plays):
-            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
+            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP, FT)
             scores[i] = score
             w_cost_metrics_lst[i] = w_cost_metrics
             s_cost_metrics_lst[i] = s_cost_metrics
