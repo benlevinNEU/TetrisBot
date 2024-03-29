@@ -158,15 +158,65 @@ class Model():
 
     def cost(self, state, tp=TP, ft=FT):
         vals = getEvals(state)
+<<<<<<< HEAD
         X = ft(self, vals)
+=======
+        X = FT(self, vals)
+>>>>>>> 4f0fc9ff1624c1c3c3582c1e8a294b7d21675e2e
         costs = X * self.weights
 
         sigma_grad = None
         if "self.gauss" in tp["feature_transform"]:
-            gWeights = self.weights[:, tp["feature_transform"].index("self.gauss")]
+            ft_start = tp["feature_transform"].index("self.gauss")
+            index = np.sum([1 for char in tp["feature_transform"][:ft_start] if char == ','])
+            gWeights = self.weights[:, index]
             sigma_grad = self.sigma_grad(vals) * gWeights
 
         return np.sum(costs), X, sigma_grad
+
+    def evaluate(self, args):
+        id, plays, gp = args
+
+        # Won't always put window in same place bc proccesses will finish in unknown order
+        slot = id % MAX_WORKERS
+
+        width = gp["cell_size"] * (gp["cols"] + 6)
+        height = gp["cell_size"] * gp["rows"] + 80
+        pos = ((width * slot) % 2560, height * int(slot / int(2560 / width)))
+
+        scores = np.zeros(plays)
+        shape = self.weights.shape
+        # 1 for score, rest for cost metrics not including bias term
+        w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
+        s_cost_metrics_lst = np.zeros((plays, shape[0]))
+        for i in range(plays):
+            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
+            scores[i] = score
+            w_cost_metrics_lst[i] = w_cost_metrics
+            s_cost_metrics_lst[i] = s_cost_metrics
+
+            if not playMore(scores[:i+1]):
+                break
+
+        # Trim to only played games before calculating expected score
+        score = expectedScore(scores[:i+1])
+        # TODO: Should I trim gradients as well or just the score?
+        s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
+        
+        std = np.std(scores[:i+1])
+
+        df = pd.DataFrame({
+            'rank': [score**3 / std],
+            'exp_score': [score],
+            'std': [std],
+            'model': [self],
+            'weights': [self.weights.flatten()],
+            'sigmas': [self.sigma],
+            'w_cost_metrics': [w_cost_metrics.flatten()],
+            's_cost_metrics': [s_cost_metrics],
+        })
+
+        return df
 
     def mutate(self, gen, w_grad=None, s_cm=None):
 
@@ -242,6 +292,7 @@ class Model():
 
         return pd.DataFrame(children, columns=['model'])
 
+<<<<<<< HEAD
     def evaluate(self, args):
         id, plays, gp = args
 
@@ -282,6 +333,8 @@ class Model():
 
         return df
 
+=======
+>>>>>>> 4f0fc9ff1624c1c3c3582c1e8a294b7d21675e2e
 # Method to play more games if the standard deviation is not stable
 # TODO: Might need to develop algo to tune theshold value
 def playMore(scores, threshold=0.003, max_count=TP["max_plays"]):
@@ -419,7 +472,7 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
 
     # Write elapsed time such that it isn't overritten by the generation number and score once leaving the pool task wrapper
     # I did this so I didn't have to handle packaging it in the result
-    sys.stdout.write(f"                                   Elapsed Time (s): {e_time:.0f}             \r") # Overwrites the line
+    sys.stdout.write(f"                                            Elapsed Time (s): {e_time:.0f}             \r") # Overwrites the line
     sys.stdout.flush()
 
     return ret_list
@@ -513,17 +566,17 @@ def main(stdscr):
             evaluate_model, (population, TP["max_plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Generation Running")
         raw_df = pd.concat(results, ignore_index=True)
         raw_df["gen"] = generation
-        raw_df = raw_df.sort_values(by="score", ascending=False)
+        raw_df = raw_df.sort_values(by="rank", ascending=False)
 
         # Select top score
-        top_score = raw_df.iloc[0]["score"]
-        print(f"Generation {generation}: Top Score = {top_score:.1f}\r")
+        top_score = raw_df.iloc[0]["exp_score"]
+        print(f"Generation {generation}: Top Expected Score = {top_score:.1f}\r")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = pd.concat([saved_models_info, raw_df])
 
         # Sort by preformance
-        models_info = models_info.sort_values(by="score", ascending=False)
+        models_info = models_info.sort_values(by="rank", ascending=False)
         del models_info["model"]
 
         # Save the numpy array to the file

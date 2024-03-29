@@ -3,10 +3,11 @@ from ai import Model, playMore, expectedScore
 import numpy as np
 from evals import *
 import transform_encode as te
-import os
+import os, cProfile
 import pandas as pd
 from scipy.stats import norm, lognorm, gamma, weibull_min
-from PIL import Image
+import time, utils
+from get_latest_profiler_data import print_stats
 
 # Initialize the game
 game_params = {
@@ -19,7 +20,7 @@ game_params = {
 }
 
 tp = {
-    "feature_transform": "x,1/(x+0.1),np.ones_like(x)",
+    "feature_transform": "x,1/(x+0.1),self.gauss(x)",
     "max_plays": 30
 }
 
@@ -44,10 +45,23 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
+PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
+PROFILE = True
+
+tid = int(time.time())
+profiler_dir = f"{PROF_DIR}{tid}/"
+
+if PROFILE:
+    os.makedirs(profiler_dir)
+    profiler = cProfile.Profile()
+    profiler.enable()
+
 data = pd.read_parquet(models_data_file)
-weights = data.sort_values(by="score", ascending=False)["weights"].iloc[0]
-sigmas = data.sort_values(by="score", ascending=False)["sigmas"].iloc[0]
-t_score = data.sort_values(by="score", ascending=False)["score"].iloc[0]
+weights = data.sort_values(by="rank", ascending=False)["weights"].iloc[0]
+sigmas = data.sort_values(by="rank", ascending=False)["sigmas"].iloc[0]
+t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
+t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
+t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
 
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 
@@ -115,46 +129,15 @@ for iter in range(iters):
 
     scores = scores[:i+1]
 
-    print(f"Average score: {np.mean(scores)}")
-    print(f"Expected score: {expectedScore(scores)}")
-    print(f"Stdev score: {np.std(scores):{di}.1f}")
-    print(f"Trained score: {t_score:{di}.1f}\n")
+    sp = 10
+    print(f"Average score: {np.mean(scores):{sp}.1f}")
+    print(f"{' ':<{sp}} {'Measured':^{sp}} {'Expected':^{sp}}")
+    print(f"{'Exp score':<{sp}} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
+    print(f"{'Std score':<{sp}} {f'{np.std(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
+    print(f"{'Rank':<{sp}} {f'{(expectedScore(scores)**3 / np.std(scores)):.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
 
     data.append(scores)
 
-    '''
-    # Plot the distribution
-    plt.hist(scores, bins=30, edgecolor='black', density=True)
-
-    x = np.linspace(np.min(scores), np.max(scores), 100)
-
-    mu, sigma = norm.fit(scores)
-    p_norm = norm.pdf(x, mu, sigma)
-    med_norm = norm.ppf(0.5, mu, sigma)
-    plt.plot(x, p_norm, 'r-', label=f'Norm: {med_norm}')
-
-    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
-    p_lognorm = lognorm.pdf(x, shape_lognorm, loc_lognorm, scale_lognorm)
-    med_lognorm = lognorm.ppf(0.5, shape_lognorm, loc_lognorm, scale_lognorm)
-    plt.plot(x, p_lognorm, 'g-', label=f'Log-Norm: {med_lognorm}')
-
-    alpha_gamma, loc_gamma, beta_gamma = gamma.fit(scores, floc=0)
-    p_gamma = gamma.pdf(x, alpha_gamma, loc_gamma, beta_gamma)
-    med_gamma = gamma.ppf(0.5, alpha_gamma, loc_gamma, beta_gamma)
-    plt.plot(x, p_gamma, 'b-', label=f'Gamma: {med_gamma}')
-
-    shape_weibull, loc_weibull, scale_weibull = weibull_min.fit(scores, floc=0)
-    p_weibull = weibull_min.pdf(x, shape_weibull, loc_weibull, scale_weibull)
-    med_weibull = weibull_min.ppf(0.5, shape_weibull, loc_weibull, scale_weibull)
-    plt.plot(x, p_weibull, '-', color='orange', label=f'Weibull: {med_weibull}')
-
-    plt.xlabel('Score')
-    plt.ylabel('Frequency')
-    plt.title('Distribution of Scores')
-
-    # Show the legend
-    plt.legend()
-    '''
 import matplotlib.pyplot as plt
 
 # Save the figure
@@ -173,6 +156,7 @@ for i in range(iters):
 
     x = np.linspace(np.min(scores), np.max(scores), 100)
 
+    # Normal distribution
     mu, sigma = norm.fit(scores)
     p_norm = norm.pdf(x, mu, sigma)
     med_norm = norm.ppf(0.5, mu, sigma)
@@ -181,6 +165,7 @@ for i in range(iters):
     aic_norm = 2*2 - 2*log_likelihood_norm
     bic_norm = np.log(n)*2 - 2*log_likelihood_norm
 
+    # Log-normal distribution
     shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
     p_lognorm = lognorm.pdf(x, shape_lognorm, loc_lognorm, scale_lognorm)
     #med_lognorm = lognorm.ppf(0.5, shape_lognorm, loc_lognorm, scale_lognorm)
@@ -190,6 +175,7 @@ for i in range(iters):
     aic_lognorm = 2*3 - 2*log_likelihood_lognorm
     bic_lognorm = np.log(n)*3 - 2*log_likelihood_lognorm
 
+    # Gamma distribution
     alpha_gamma, loc_gamma, beta_gamma = gamma.fit(scores, floc=0)
     p_gamma = gamma.pdf(x, alpha_gamma, loc_gamma, beta_gamma)
     med_gamma = gamma.ppf(0.5, alpha_gamma, loc_gamma, beta_gamma)
@@ -198,6 +184,7 @@ for i in range(iters):
     aic_gamma = 2*3 - 2*log_likelihood_gamma
     bic_gamma = np.log(n)*3 - 2*log_likelihood_gamma
 
+    # Weibull distribution
     shape_weibull, loc_weibull, scale_weibull = weibull_min.fit(scores, floc=0)
     p_weibull = weibull_min.pdf(x, shape_weibull, loc_weibull, scale_weibull)
     med_weibull = weibull_min.ppf(0.5, shape_weibull, loc_weibull, scale_weibull)
@@ -229,3 +216,10 @@ plt.tight_layout()
 plt.savefig(os.path.join(CURRENT_DIR, "figure.png"), bbox_inches='tight')
 plt.close()
 
+if PROFILE:
+    profiler.disable()
+    profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
+
+    p = utils.merge_profile_stats(profiler_dir)
+    print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))
+    print_stats(p.strip_dirs().sort_stats('tottime'), 30)
