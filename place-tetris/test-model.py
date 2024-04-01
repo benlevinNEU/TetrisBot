@@ -21,7 +21,8 @@ game_params = {
 
 tp = {
     "feature_transform": "x,1/(x+0.1),self.gauss(x)",
-    "max_plays": 30
+    "max_plays": 30,
+    "rank": lambda e,s: e - np.sqrt(s),
 }
 
 def playMore(scores, threshold=0.003, max_count=tp["max_plays"]):
@@ -46,7 +47,7 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
 PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
-PROFILE = True
+PROFILE = False
 
 tid = int(time.time())
 profiler_dir = f"{PROF_DIR}{tid}/"
@@ -82,7 +83,7 @@ if "gauss" in ft:
 print('\n', end='')
 
 game_params = {
-    "gui": False,  # Set to True to visualize the game
+    "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 8,
     "rows": 12,
@@ -131,10 +132,12 @@ for iter in range(iters):
 
     sp = 10
     print(f"Average score: {np.mean(scores):{sp}.1f}")
-    print(f"{' ':<{sp}} {'Measured':^{sp}} {'Expected':^{sp}}")
-    print(f"{'Exp score':<{sp}} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
-    print(f"{'Std score':<{sp}} {f'{np.std(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
-    print(f"{'Rank':<{sp}} {f'{(expectedScore(scores)**3 / np.std(scores)):.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
+    print(f"{' ':<6} {'Measured':^{sp}} {'Expected':^{sp}}")
+    print(f"{'Exp':<6} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
+    print(f"{'Std':<6} {f'{np.std(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
+    #print(f"{'Rank':<6} {f'{(expectedScore(scores)**3 / np.std(scores)):.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
+    rank = tp['rank'](expectedScore(scores), np.std(scores))
+    print(f"{'Rank':<6} {f'{rank:.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
 
     data.append(scores)
 

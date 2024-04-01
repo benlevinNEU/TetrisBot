@@ -158,11 +158,7 @@ class Model():
 
     def cost(self, state, tp=TP, ft=FT):
         vals = getEvals(state)
-<<<<<<< HEAD
         X = ft(self, vals)
-=======
-        X = FT(self, vals)
->>>>>>> 4f0fc9ff1624c1c3c3582c1e8a294b7d21675e2e
         costs = X * self.weights
 
         sigma_grad = None
@@ -199,16 +195,37 @@ class Model():
                 break
 
         # Trim to only played games before calculating expected score
-        score = expectedScore(scores[:i+1])
-        # TODO: Should I trim gradients as well or just the score?
-        s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
+        scores = scores[:i+1]
+        score, ln_vals = expectedScore(scores, True)
+        w_cost_metrics = w_cost_metrics_lst[:i+1]
+        s_cost_metrics = s_cost_metrics_lst[:i+1]
+
+        # Improve weighting of cost gradient of poorly preforming plays by preforming a log-norm transform on the metrics 
+        # based on how they are distributed among the play throughs and summing the results of the transform
+        w = stats.lognorm.pdf(scores, *ln_vals)
+        w_cost_metrics = np.sum(w_cost_metrics * w[:, np.newaxis, np.newaxis], axis=0)
+        s_cost_metrics = np.sum(s_cost_metrics * w[:, np.newaxis], axis=0)
+
+        #w_cost_metrics = np.mean(w_cost_metrics, axis=0)
+        #s_cost_metrics = np.mean(s_cost_metrics, axis=0)
         
-        std = np.std(scores[:i+1])
+        std = np.std(scores)
+
+        shape, _, scale = ln_vals
+
+        def rank(shape, scale):
+            exp = np.log(scale)
+            std = shape
+            expected_value = np.exp(exp - std/2)
+    
+            return expected_value
 
         df = pd.DataFrame({
-            'rank': [score**3 / std],
+            'rank': [rank(shape, scale)], #[score**3 / std],
             'exp_score': [score],
             'std': [std],
+            'shape': [shape],
+            'scale': [scale],
             'model': [self],
             'weights': [self.weights.flatten()],
             'sigmas': [self.sigma],
@@ -292,49 +309,6 @@ class Model():
 
         return pd.DataFrame(children, columns=['model'])
 
-<<<<<<< HEAD
-    def evaluate(self, args):
-        id, plays, gp = args
-
-        # Won't always put window in same place bc proccesses will finish in unknown order
-        slot = id % MAX_WORKERS
-
-        width = gp["cell_size"] * (gp["cols"] + 6)
-        height = gp["cell_size"] * gp["rows"] + 80
-        pos = ((width * slot) % 2560, height * int(slot / int(2560 / width)))
-
-        scores = np.zeros(plays)
-        shape = self.weights.shape
-        # 1 for score, rest for cost metrics not including bias term
-        w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
-        s_cost_metrics_lst = np.zeros((plays, shape[0]))
-        for i in range(plays):
-            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP, FT)
-            scores[i] = score
-            w_cost_metrics_lst[i] = w_cost_metrics
-            s_cost_metrics_lst[i] = s_cost_metrics
-
-            if not playMore(scores):
-                break
-
-        # Trim to only played games before calculating expected score
-        score = expectedScore(scores[:i+1])
-        # TODO: Should I trim gradients as well or just the score?
-        s_cost_metrics = np.mean(s_cost_metrics_lst, axis=0)
-
-        df = pd.DataFrame({
-            'score': [score],
-            'model': [self],
-            'weights': [self.weights.flatten()],
-            'sigmas': [self.sigma],
-            'w_cost_metrics': [w_cost_metrics.flatten()],
-            's_cost_metrics': [s_cost_metrics],
-        })
-
-        return df
-
-=======
->>>>>>> 4f0fc9ff1624c1c3c3582c1e8a294b7d21675e2e
 # Method to play more games if the standard deviation is not stable
 # TODO: Might need to develop algo to tune theshold value
 def playMore(scores, threshold=0.003, max_count=TP["max_plays"]):
@@ -351,13 +325,20 @@ def playMore(scores, threshold=0.003, max_count=TP["max_plays"]):
 
 # Method to calculate expected score
 # Scores from models have high stdev and mean has heavy right skew
-def expectedScore(scores):
-
-    x = np.linspace(np.min(scores), np.max(scores), 100)
+def expectedScore(scores, getVals=False):
+    # Fit the log-normal distribution to the data
     shape_lognorm, loc_lognorm, scale_lognorm = stats.lognorm.fit(scores, floc=0)
-    #p_lognorm = stats.lognorm.pdf(x, shape_lognorm, loc_lognorm, scale_lognorm)
-    med_lognorm = stats.lognorm.ppf(0.5, shape_lognorm, loc_lognorm, scale_lognorm)
-    return med_lognorm
+
+    # Calculate the expected value (mean) of the log-normal distribution
+    # For log-normal, mean = exp(mu + sigma^2 / 2)
+    mu = np.log(scale_lognorm)  # scale_lognorm = exp(mu)
+    sigma = shape_lognorm
+    expected_value = np.exp(mu + (sigma**2) / 2)
+
+    if getVals:
+        return expected_value, (shape_lognorm, loc_lognorm, scale_lognorm)
+
+    return expected_value
 
     '''
     std = np.std(scores)
@@ -440,13 +421,15 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
         func = task_func
         args = task_args
 
+    start_time = time.time()  # Assign a valid value to start_time
+
     # For easier debugging
     # Raper method hides source of thrownxceptions
     if MAX_WORKERS == 1: 
         # Execute the task function sequentiallyodel
         for id, model in args[0].iterrows():
             ret_list.append(func((model, id, *args[1:])))
-            progress = (count / len(args[0])) * 100
+            progress = ((id+1) / len(args[0])) * 100
 
             # Prints the progress percentage with appropriate task label
             e_time = time.time() - start_time
@@ -457,7 +440,6 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
         # Execute the task function
         with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
             # Grabs the models from the first arg and assigns an id to each model before submitting
-            start_time = time.time()  # Assign a valid value to start_time
             futures = [executor.submit(
                 func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
@@ -584,7 +566,7 @@ def main(stdscr):
             os.makedirs(MODELS_DIR)
         save_file = os.path.join(MODELS_DIR, file_name)
 
-        models_info.to_parquet(save_file)
+        models_info.to_parquet(save_file) #TODO: rank to meta data of parquet, metadata={"rank": TP['rank']})
         exists = True
         
         # Check for safe exit
