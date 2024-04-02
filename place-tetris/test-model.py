@@ -13,7 +13,7 @@ from get_latest_profiler_data import print_stats
 game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 8,
+    "cols": 10,
     "rows": 12,
     "window_pos": (0, 0),
     "sleep": 0.01
@@ -82,14 +82,15 @@ if "gauss" in ft:
 
 print('\n', end='')
 
-game_params = {
+# Uncomment if you want to test a model trained on a different board size
+'''game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 8,
+    "cols": 10,
     "rows": 12,
     "window_pos": (0, 0),
     "sleep": 0.01
-}
+}'''
 
 #score, _, _ = model.play(game_params, (0,0), tp)
 
@@ -135,7 +136,6 @@ for iter in range(iters):
     print(f"{' ':<6} {'Measured':^{sp}} {'Expected':^{sp}}")
     print(f"{'Exp':<6} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
     print(f"{'Std':<6} {f'{np.std(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
-    #print(f"{'Rank':<6} {f'{(expectedScore(scores)**3 / np.std(scores)):.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
     rank = tp['rank'](expectedScore(scores), np.std(scores))
     print(f"{'Rank':<6} {f'{rank:.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
 
