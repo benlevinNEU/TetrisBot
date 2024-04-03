@@ -71,7 +71,7 @@ PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
-    def __init__(self, tp=TP, weights=[], sigmas=np.random.uniform(0.01, 0.99, NUM_EVALS), gen=1):
+    def __init__(self, tp=TP, weights=[], sigmas=np.random.uniform(0.01, 0.99, NUM_EVALS), gen=1, parent_gen=0):
         self.sigma = sigmas
         ft = eval(f"lambda self, x: np.array([{te.decode(tp["feature_transform"])}])")
         self.fts = ft(self, np.ones(NUM_EVALS)).shape[0]
@@ -82,6 +82,7 @@ class Model():
         self.weights = weights
         self.gen = gen
         self.tp = tp
+        self.parent_gen = parent_gen
 
     def play(self, gp, pos, tp=TP, ft=FT):
         game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
@@ -144,7 +145,7 @@ class Model():
             success_log.close()
 
         game.quit_game()
-        return score, tot_cost/moves/score, w_cost_metrics, s_cost_metrics
+        return score, w_cost_metrics, s_cost_metrics
     
     def gauss(self, x, mu=0.5):
         #print(f"sigma: {self.sigma}")
@@ -223,6 +224,7 @@ class Model():
             return expected_value
 
         df = pd.DataFrame({
+            'gen': [self.gen],
             'rank': [rank(shape, scale)], #[score**3 / std],
             'cost': [cost],
             'exp_score': [score],
@@ -234,6 +236,13 @@ class Model():
             'sigmas': [self.sigma],
             'w_cost_metrics': [w_cost_metrics.flatten()],
             's_cost_metrics': [s_cost_metrics],
+            'lr': [TP['learning_rate'](self.gen)],
+            'slr': [TP['s_learning_rate'](self.gen)],
+            'mr': [TP['mutation_rate'](self.gen)],
+            'ms': [TP['mutation_strength'](self.gen)],
+            'sms': [TP['s_mutation_strength'](self.gen)],
+            'af': [TP['age_factor'](self.gen-parent_gen)],
+
         })
 
         return df
@@ -306,7 +315,7 @@ class Model():
 
             new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
 
-            model = Model(weights=new_weights, sigmas=new_sigmas)
+            model = Model(weights=new_weights, sigmas=new_sigmas, parent_gen=gen)
             model.tp = None # Remove reference to TP for pickling
             children.append(model)
 

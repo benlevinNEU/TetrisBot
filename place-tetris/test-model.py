@@ -14,13 +14,13 @@ game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 10,
-    "rows": 12,
+    "rows": 22,
     "window_pos": (0, 0),
     "sleep": 0.01
 }
 
 tp = {
-    "feature_transform": "x,1/(x+0.1),self.gauss(x)",
+    "feature_transform": "x",
     "max_plays": 30,
     "rank": lambda e,s: e - np.sqrt(s),
 }
@@ -57,12 +57,18 @@ if PROFILE:
     profiler = cProfile.Profile()
     profiler.enable()
 
-data = pd.read_parquet(models_data_file)
-weights = data.sort_values(by="rank", ascending=False)["weights"].iloc[0]
-sigmas = data.sort_values(by="rank", ascending=False)["sigmas"].iloc[0]
-t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
-t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
-t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
+#data = pd.read_parquet(models_data_file)
+#weights = data.sort_values(by="rank", ascending=False)["weights"].iloc[0]
+#sigmas = data.sort_values(by="rank", ascending=False)["sigmas"].iloc[0]
+#t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
+#t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
+#t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
+
+weights = np.array([3.9304998446226453, 0.6278212056361121, 30.270904991356566, 34.65472026088795, 27.326096925153074, -3.208231649499382, 0, 0, 0])
+sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0, 0, 0])
+t_score = 0
+t_std = 0
+t_rank = 0
 
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 
