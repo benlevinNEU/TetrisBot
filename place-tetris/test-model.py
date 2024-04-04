@@ -13,17 +13,17 @@ from get_latest_profiler_data import print_stats
 game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 8,
-    "rows": 12,
-
+    "cols": 10,
+    "rows": 20,
     "window_pos": (0, 0),
-    "sleep": 0.01
+    "sleep": 0.1
 }
 
 tp = {
     "feature_transform": "x",
     "max_plays": 30,
     "rank": lambda e,s: e - np.sqrt(s),
+    "profile": True
 }
 
 def playMore(scores, threshold=0.04, min_count=8, max_count=tp["max_plays"]):
@@ -54,7 +54,7 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
 PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
-PROFILE = False
+PROFILE = tp["profile"]
 
 tid = int(time.time())
 profiler_dir = f"{PROF_DIR}{tid}/"
@@ -77,8 +77,6 @@ t_score = 0
 t_std = 0
 t_rank = 0
 
-model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
-
 # Format the weights for display with labels
 feature_transforms = ft.split(",")
 sp = 10
@@ -96,23 +94,34 @@ if "gauss" in ft:
 print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
-game_params = {
+'''game_params = {
     "gui": False,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 8,
     "rows": 12,
     "window_pos": (0, 0),
     "sleep": 0.01
-}
+}'''
+
+model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
+model.evals = Evals(game_params)
 
 #score, _, _ = model.play(game_params, (0,0), tp)
 
-PLAY_ONCE = False
+PLAY_ONCE = True
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
-    score, _, _, _ = model.play(game_params, (0,0), tp, ft)
+    score, _, _ = model.play(game_params, (0,0), tp, ft)
     print(f"Score: {score}")
+
+    if PROFILE:
+        profiler.disable()
+        profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
+
+        p = utils.merge_profile_stats(profiler_dir)
+        print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))
+        print_stats(p.strip_dirs().sort_stats('tottime'), 30)
     exit()
 
 def aic(scores):

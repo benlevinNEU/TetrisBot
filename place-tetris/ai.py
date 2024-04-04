@@ -128,7 +128,7 @@ class Model():
                 norm_s_grad += min_s_grad
 
             moves += 1
-            options, game_over, score = game.ai_command(best_option)
+            options, game_over, score = game.ai_command(best_option, cp=(self, tp, ft))
 
         # Return the absolute value of the average cost per move and the average gradient
         w_cost_metrics = norm_c_grad/moves/score
@@ -263,8 +263,8 @@ class Model():
             s_cm = np.ones(NUM_EVALS)
 
         # Regularize gradient step scale largest step to the learning rate
-        w_l2 = np.linalg.norm(self.weights)
-        w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad)
+        w_l2 = np.linalg.norm(self.weights, axis=0)
+        w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad, axis=0)
 
         s_l2 = np.linalg.norm(self.sigma)
         s_step = TP["s_learning_rate"](gen) * s_l2 * s_cm/np.linalg.norm(s_cm)
@@ -300,9 +300,9 @@ class Model():
                     if np.random.rand() < TP["mutation_rate"](gen):
                         # Strong mutation if weight is 0
                         if new_weights[e,f] == 0:
-                            strength = w_strength * 10
+                            strength = w_strength[f] * 10
                         else:
-                            strength = w_strength
+                            strength = w_strength[f]
 
                         # Strengthen mutation for bias
                         if (index is not None) and (f == index):
@@ -362,25 +362,6 @@ def expectedScore(scores, getVals=False):
         return expected_value, (shape_lognorm, loc_lognorm, scale_lognorm)
 
     return expected_value
-
-    '''
-    std = np.std(scores)
-    samples = len(scores)
-
-    # Base prop
-    base_prop = 0.2
-
-    # TODO: WIll need to tune this bc prop is never being adjusted bc std is always very large
-
-    # Adjust the proportion based on the standard deviation and sample size
-    # This is a simple heuristic and can be adjusted based on empirical testing
-    prop = base_prop * std / np.sqrt(samples)
-
-    # Ensure the proportion is within a sensible range, e.g., 0.01 to 0.25
-    prop = max(0.01, min(prop, 0.25))
-
-    return np.mean(stats.mstats.winsorize(scores, limits=(prop, prop)))
-    '''
 
 # Method wrapper
 def mutate_model(args):
@@ -471,7 +452,7 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
                 progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed Time / Estimate (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
+                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
                 sys.stdout.flush()
                 ret_list.append(future.result())
 
@@ -568,7 +549,7 @@ def main(stdscr):
 
         # Evaluate all networks in parallel
         results = pool_task_wrapper(
-            evaluate_model, (population, TP["max_plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Generation Running")
+            evaluate_model, (population, TP["max_plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Gen Running")
         raw_df = pd.concat(results, ignore_index=True)
         raw_df["gen"] = generation
         raw_df = raw_df.sort_values(by="rank", ascending=False)

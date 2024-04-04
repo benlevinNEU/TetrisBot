@@ -64,6 +64,7 @@ class TetrisApp(object):
             self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
             self.lines = 0
             self.level = 1
+            self.gameover = False
             return
         
         self.phantom = False
@@ -132,7 +133,8 @@ class TetrisApp(object):
             if self.stoneID == 5 and self.is_valid_state(self.stone, self.stone_x, self.stone_y-1)[0]:
                 self.stone_y -= 1
                 return
-
+            
+            #self.is_valid_state(self.stone, self.stone_x, self.stone_y)[0]
             self.gameover = True
 
     def init_game(self):
@@ -252,10 +254,17 @@ class TetrisApp(object):
 
     # Preforms BFS from current state to find all possible finishing states for board for current stone and next stone
     # TODO: Need to make more efficient (though current implementation is very clean and eliminates duplicate code)
-    def getFinalStates(self):
+    # TODO: Use cost as heuristic to cut off 50% worst realboard states
+    # Ensures that state_key is unique when evaluating phantom states prevents dupicates from being evaluated
+    def getFinalStates(self, vs_key=None, cp=None):
 
-        visited_states = set()  # To track visited states
+        if vs_key is None:
+            visited_states, prev_state_key = set(), None
+        else:
+            visited_states, prev_state_key = vs_key # To track visited states and last state key
+
         final_boards = []       # To store final board states (where second stone touches bottom)
+        mid_boards = []         # To store board states where first stone touches bottom
         queue = [(self.stone, self.stone_x, self.stone_y, [])]  # Initial queue with starting state and board
         current_board = self.board.copy()  # Store the current board state
 
@@ -265,8 +274,15 @@ class TetrisApp(object):
                 new_stone, new_x, new_y = action(current_stone, current_x, current_y)
                 valid, touching_bottom = self.is_valid_state(new_stone, new_x, new_y) # Assuming this function exists and checks if the move is valid
                 if valid:
-                    state_key = (tuple(map(tuple, new_stone)), new_x, new_y)  # Convert to a hashable state
-                    if state_key not in visited_states:
+                    if self.phantom:
+                        state_key_partial1 = prev_state_key
+                        state_key_partial2 = (tuple(map(tuple, new_stone)), new_x, new_y)  # Convert to a hashable state
+                        state_key = (state_key_partial1, state_key_partial2)  # Convert to a hashable state
+                    else:
+                        state_key = ((tuple(map(tuple, new_stone)), new_x, new_y), None)
+
+                    # Check if state is in either order
+                    if state_key not in visited_states and (state_key[1], state_key[0]) not in visited_states:
                         visited_states.add(state_key)
                         if touching_bottom:
                             new_board = current_board.copy()
@@ -281,20 +297,43 @@ class TetrisApp(object):
                             
                             points, new_board = phantom.clear_rows()
                             points_scored = points + (self.score if self.phantom else 0)
-                            phantom.new_stone()
-
-                            #TODO: Consider checking for duplicate final boards. Can occur if 2 identical stones are provided back to back
 
                             if self.phantom:
-                                # Returns the board from real game and the board from phantom game as well as steps to get to real game and points scored from both pieces
-                                # Steps to get to real game are stored in phantom game so steps accumulated in this method are ignored
-                                final_boards.append((trimBoard(new_board), trimBoard(self.board), self.steps, points_scored))
-                                #print_board(trimBoard(new_board))
+                                # Phantom board, Real board, actions, points
+                                # Steps to get to real game are stored. Steps accumulated in phantom game are ignored
+                                option = (trimBoard(new_board), trimBoard(self.board), self.steps, points_scored)
+                                final_boards.append(option)
+                            
                             else:
-                                final_boards.extend(phantom.getFinalStates())
+                                cost = None
+                                if cp is not None:
+                                    model = cp[0]
+                                    option = (trimBoard(new_board), None, None, points_scored)
+                                    cost, _, _ = model.cost(option, *cp[1:])
+
+                                phantom.new_stone()
+                                if not phantom.gameover:
+                                    mid_boards.append((phantom, state_key[0], cost))
                             
                         queue.append((new_stone, new_x, new_y, steps + [i]))  # Enqueue new state
 
+        # Check if any board has a cost that is None
+        if any(board[2] is None for board in mid_boards):
+            # If any board has a cost of None, process all boards
+            boards_to_process = mid_boards
+        else:
+            # Proccess only the top 1 - PRUNE_RATIO of boards
+            PRUNE_RATIO = 0.3
+            sorted_mid_boards = sorted(mid_boards, key=lambda x: x[2])  # x[2] is the cost
+            boards_to_process = sorted_mid_boards[:int(len(sorted_mid_boards) * (1 - PRUNE_RATIO))]
+
+        # Process the selected boards
+        for board in boards_to_process:
+            phantom, state_key, _ = board  # _ is used to ignore the cost in the unpacking as it's not needed here
+            final_boards.extend(phantom.getFinalStates(vs_key=(visited_states, state_key)))
+
+        if final_boards == [] and not self.phantom:
+            pass
         return final_boards
 
     # Determines if this state is possible and returns if stone touching bottom
@@ -322,7 +361,7 @@ class TetrisApp(object):
 
         return True, np.any(board == 4)
 
-    def ai_command(self, choice):
+    def ai_command(self, choice, cp=None):
 
         (f_board, r_board, actions_, _) = choice
 
@@ -344,7 +383,7 @@ class TetrisApp(object):
         if self.gui:
             self.update_board()
 
-        return self.getFinalStates(), self.gameover, self.score
+        return self.getFinalStates(cp=cp), self.gameover, self.score
 
     def quit_game(self):
         pygame.quit()

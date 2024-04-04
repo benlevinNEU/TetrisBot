@@ -120,10 +120,10 @@ class Evals():
         max_height = np.max(hs)
         avg_height = np.mean(hs)
 
-        mx_h4e = np.min([np.min(hs), GP['cols'] - np.max(hs)])
-        mn_h4e = np.min([np.max(hs), GP['cols'] - np.min(hs)])
+        mx_h4e = np.min([np.min(hs), self.GP['cols'] - np.max(hs)])
+        mn_h4e = np.min([np.max(hs), self.GP['cols'] - np.min(hs)])
 
-        coef = np.polyfit(np.arange(GP['cols']), hs, 2)[0]
+        coef = np.polyfit(np.arange(self.GP['cols']), hs, 2)[0]
 
         n_bmps = bmps / self.MX_BMPS
         n_max_height = max_height / self.MXH
