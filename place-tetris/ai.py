@@ -128,7 +128,7 @@ class Model():
                 norm_s_grad += min_s_grad
 
             moves += 1
-            options, game_over, score = game.ai_command(best_option)
+            options, game_over, score = game.ai_command(best_option, cp=(self, tp, ft))
 
         # Return the absolute value of the average cost per move and the average gradient
         w_cost_metrics = norm_c_grad/moves/score

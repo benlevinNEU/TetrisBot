@@ -77,8 +77,6 @@ t_score = 0
 t_std = 0
 t_rank = 0
 
-model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
-model.evals = Evals(game_params)
 # Format the weights for display with labels
 feature_transforms = ft.split(",")
 sp = 10
@@ -96,14 +94,17 @@ if "gauss" in ft:
 print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
-game_params = {
+'''game_params = {
     "gui": False,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 8,
     "rows": 12,
     "window_pos": (0, 0),
     "sleep": 0.01
-}
+}'''
+
+model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
+model.evals = Evals(game_params)
 
 #score, _, _ = model.play(game_params, (0,0), tp)
 
@@ -111,7 +112,7 @@ PLAY_ONCE = True
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
-    score, _, _, _ = model.play(game_params, (0,0), tp, ft)
+    score, _, _ = model.play(game_params, (0,0), tp, ft)
     print(f"Score: {score}")
 
     if PROFILE:
