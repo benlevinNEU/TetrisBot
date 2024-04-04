@@ -107,7 +107,12 @@ class TetrisApp(object):
         self.stone_y = max(top_row - self.stone.shape[0], 0)
         self.score += self.stone_y
 
+        # If stone is line, allows stone to start at very top
         if not self.is_valid_state(self.stone, self.stone_x, self.stone_y)[0]:
+            if self.stoneID == 5 and self.is_valid_state(self.stone, self.stone_x, self.stone_y-1)[0]:
+                self.stone_y -= 1
+                return
+
             self.gameover = True
 
     def init_game(self):

@@ -97,7 +97,7 @@ def plot_model_performance(file, ax, lines):
         best_score[gen] = np.max(best_score_in_gen)
         average_score_of_topN[gen] = np.mean(all_scores[:topN])
 
-        
+
 
 
     # Update the data for each plot line
@@ -111,12 +111,12 @@ def plot_model_performance(file, ax, lines):
     ax1.set_xlim(0, generations-1)
     ax1.set_ylim(0, np.max([best_score, average_score_of_topN, best_score_in_gen, average_score_in_gen]) * 1.1)
 
-    lines['lr'].set_data(x, data[data[:, 0] < generations][:, 2])
+    '''lines['lr'].set_data(x, data[data[:, 0] < generations][:, 2])
     lines['s_lr'].set_data(x, data[data[:, 0] < generations][:, 3])
     lines['mr'].set_data(x, data[data[:, 0] < generations][:, 4])
     lines['ms'].set_data(x, data[data[:, 0] < generations][:, 5])
     lines['sms'].set_data(x, data[data[:, 0] < generations][:, 6])
-    lines['af'].set_data(x, data[data[:, 0] < generations][:, 7])
+    lines['af'].set_data(x, data[data[:, 0] < generations][:, 7])'''
 
     # Redraw the plot
     plt.draw()

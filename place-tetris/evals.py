@@ -57,53 +57,8 @@ test_holes = np.array([[0, 0, 0, 0],
                        [0, 0, 1, 1],
                        [1, 1, 0, 0],
                        [0, 1, 1, 0]])
-                       
 
-def getHeightParams(board):
-    bmps = 0
-    max_height = 0
-    min_height = np.inf
-    mx_h4e = int(GP["cols"]/2)
-    mn_h4e = 0
-
-    column = board[:, 0]                            # Vertical slice of board
-    loc = np.where(column[::-1]==1)
-    h1 = np.max(loc)+1 if len(loc[0]) > 0 else 0
-    height_sum = h1
-
-    for col in range(1, GP["cols"]):
-
-        if h1 > max_height:
-            max_height = h1
-            mx_h4e = min(col - 0, GP["cols"] - col) # Max height distance from edge
-
-        if h1 < min_height:
-            min_height = h1
-            mn_h4e = min(col - 0, GP["cols"] - col) # Min height distance from edge
-
-        column = board[:, col]
-        loc = np.where(column[::-1]==1)
-        h2 = np.max(loc)+1 if len(loc[0]) > 0 else 0
-        bmps += abs(h1 - h2)
-        h1 = h2
-
-        height_sum += h1
-
-    if h2 > max_height:
-        max_height = h2
-
-    # Get theoretical max bmps
-    max_bmps = ((GP['cols']-1)*GP['rows'])
-
-    n_bmps = bmps/max_bmps
-    n_max_height = max_height/GP['rows']
-    n_avg_height = height_sum/GP['cols']/GP['rows']
-    n_min_height = min_height/GP['rows']
-    n_mx_h4e = mx_h4e/(GP['cols']/2)
-    n_mn_h4e = mn_h4e/(GP['cols']/2)
-
-    # Return normalized values
-    return n_bmps, n_max_height, n_avg_height, n_min_height, n_mx_h4e, n_mn_h4e
+NUM_EVALS = 9
 
 def dfs(matrix, x, y, visited, value, fill=0):
 
@@ -123,96 +78,212 @@ def dfs(matrix, x, y, visited, value, fill=0):
 
     return matrix
 
-def getHoles(board):
+class Evals():
 
-    trimboard = board.copy()
-    h = max(0, np.argmax(np.any(trimboard == 1, axis=1)) - 1)
-    l = max(0, np.argmax(np.any(trimboard == 1, axis=0)) - 1)
-    r = min(GP["cols"], GP["cols"] - np.argmax(np.any(trimboard[:, ::-1] == 1, axis=0)) + 1)
+    def __init__(self, GP):
+        self.GP = GP
 
-    trimboard = trimboard[h:, l:r]
+        # Get Theoretical Maxes
+        self.MXH = GP['rows']
+        self.MX_DTE = GP['cols']/2
+        self.MX_BMPS = ((GP['cols']-1)*GP['rows'])
 
-    if trimboard.shape[0] == 1:
-        pass
+        self.HS = np.zeros(GP['cols'])
+        self.HS[[0,-1]] = self.MXH
+        self.MX_POLY_COEF = np.polyfit(np.arange(GP['cols']), self.HS, 2)[0]
 
-    visited = np.ones_like(trimboard, dtype=bool)*-1
-    visited[trimboard == 1] = 0
+        self.MX_HOLES = GP["rows"] * GP["cols"] / 2
+        self.MX_OVERHANGS = GP["rows"] * GP["cols"] / 2
 
-    island_count = 0
+        # Fear of Death Warning
+        self.FoD_W = 4
 
-    for i in range(trimboard.shape[0]):
-        for j in range(trimboard.shape[1]):
-            if trimboard[i, j] == 0 and visited[i, j] == -1:
-                if i == 0: # Top row should be empty and not filled 
-                    dfs(trimboard, j, i, visited, 0)
-                else: 
-                    dfs(trimboard, j, i, visited, 0, fill=2)
-                    island_count += 1
+    def heights(self, arr):
+        # Get the index of the first 1 in each column from the top
+        idxs = np.argmax(arr, axis=0)
+        heights = self.MXH - idxs
 
-    trimboard += visited
+        # Check for columns that are all zeros and set their heights to 0
+        heights[arr.max(axis=0) == 0] = 0
+        
+        return heights
 
-    max_holes = GP["rows"] * GP["cols"] / 2
+    def getHP(self, board):
 
-    return island_count/max_holes, trimboard
+        hs = self.heights(board)
 
-def getOverhangs(board):
-    overhangs = 0
-    pattern = np.array([1, 0])
+        bmps = np.sum(abs(np.diff(hs)))
+        
+        min_height = np.min(hs)
+        max_height = np.max(hs)
+        avg_height = np.mean(hs)
 
-    for col in range(board.shape[1]):
-        column = board[:, col]
-        windows = np.lib.stride_tricks.sliding_window_view(column, window_shape=2)
-        for window in windows:
-            if np.array_equal(window, pattern):
-                overhangs += 1
+        mx_h4e = np.min([np.min(hs), GP['cols'] - np.max(hs)])
+        mn_h4e = np.min([np.max(hs), GP['cols'] - np.min(hs)])
 
-    max_overhangs = GP["rows"] * GP["cols"] / 2
+        coef = np.polyfit(np.arange(GP['cols']), hs, 2)[0]
 
-    return overhangs / max_overhangs
+        n_bmps = bmps / self.MX_BMPS
+        n_max_height = max_height / self.MXH
+        n_avg_height = avg_height / self.MXH
+        n_min_height = min_height / self.MXH
+        n_mx_h4e = mx_h4e / self.MX_DTE
+        n_mn_h4e = mn_h4e / self.MX_DTE
+        n_coef = coef / self.MX_POLY_COEF
 
-def getPointsForMove(state):
+        fod = min(int(self.MXH - max_height), self.FoD_W) / self.FoD_W
 
-    board, actions = state
+        return n_bmps, n_max_height, n_avg_height, n_min_height, 0, 0#, n_coef, fod
 
-    actions = np.array(actions)
+    def getHoles(self, board):
 
-    drops = np.sum(actions == 3)
-    cl_rows = np.sum(np.all(board != 0, axis=1))
+        trimboard = board.copy()
+        h = max(0, np.argmax(np.any(trimboard == 1, axis=1)) - 1)
+        l = max(0, np.argmax(np.any(trimboard == 1, axis=0)) - 1)
+        r = min(self.GP["cols"], self.GP["cols"] - np.argmax(np.any(trimboard[:, ::-1] == 1, axis=0)) + 1)
 
-    # TODO: Make extensible
-    linescores = [0, 40, 100, 300, 1200]
-    cl_pnts = linescores[cl_rows]
+        trimboard = trimboard[h:, l:r]
 
-    points = cl_pnts + drops
+        if trimboard.shape[0] == 1:
+            pass
 
-    max_points = 1200 + GP['rows'] - 4
+        visited = np.ones_like(trimboard, dtype=bool)*-1
+        visited[trimboard == 1] = 0
 
-    return points / max_points
+        island_count = 0
 
-NUM_EVALS = 9
-def getEvals(state):
+        for i in range(trimboard.shape[0]):
+            for j in range(trimboard.shape[1]):
+                if trimboard[i, j] == 0 and visited[i, j] == -1:
+                    if i == 0: # Top row should be empty and not filled 
+                        dfs(trimboard, j, i, visited, 0)
+                    else: 
+                        dfs(trimboard, j, i, visited, 0, fill=2)
+                        island_count += 1
 
-    board, _ = state
+        trimboard += visited
 
-    board = board.copy()
-    board[board > 0] = 1
+        return island_count / self.MX_HOLES, trimboard
 
-    points = getPointsForMove(state)
+    def getOverhangs(self, board):
+        overhangs = 0
+        pattern = np.array([1, 0])
 
-    cleared_rows = np.sum(np.all(board != 0, axis=1))
-    board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
+        for col in range(board.shape[1]):
+            column = board[:, col]
+            windows = np.lib.stride_tricks.sliding_window_view(column, window_shape=2)
+            for window in windows:
+                if np.array_equal(window, pattern):
+                    overhangs += 1
 
-    bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e = getHeightParams(board)
+        return overhangs / self.MX_OVERHANGS
 
-    holes, board = getHoles(board)  # Outputs board with holes plugged with 2's
-    overhangs = getOverhangs(board)
+    def getPointsForMove(self, state):
 
-    vals = np.array([bmps, max_height, avg_height, min_height, holes, overhangs, points, mx_h4e, mn_h4e])
+        board, actions = state
 
-    return vals
+        actions = np.array(actions)
+
+        drops = np.sum(actions == 3)
+        cl_rows = np.sum(np.all(board != 0, axis=1))
+
+        # TODO: Make extensible
+        linescores = [0, 40, 100, 300, 1200]
+        cl_pnts = linescores[cl_rows]
+
+        points = cl_pnts + drops
+
+        max_points = 1200 + self.GP['rows'] - 4
+
+        return points / max_points
+
+    def getEvals(self, state):
+
+        board, _ = state
+
+        board = board.copy()
+        board[board > 0] = 1
+
+        points = self.getPointsForMove(state)
+
+        cleared_rows = np.sum(np.all(board != 0, axis=1))
+        board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
+
+        bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e = self.getHP(board)
+
+        holes, board = self.getHoles(board)  # Outputs board with holes plugged with 2's
+        overhangs = self.getOverhangs(board)
+
+        vals = np.array([bmps, max_height, avg_height, min_height, holes, overhangs, points, mx_h4e, mn_h4e])
+
+        return vals
 
 def getEvalLabels():
-    return ["bmps   ", "mx_h   ", "av_h   ", "mn_h   ", "holes  ", "ovhangs", "points ", "mx_h4e ", "mn_h4e  "]
+    return ["bmps   ", "mx_h   ", "av_h   ", "mn_h   ", "holes  ", "ovhangs", "points ", "poly_c ", "FoD_W  "]
 
+# Tests
 if __name__ == "__main__":
     print(getEvals((board, [])))
+
+    # Example usage
+    array = np.array([
+        [0, 0, 1, 0],
+        [1, 1, 1, 1],
+        [1, 0, 0, 1],
+    ])
+    assert (heights(array) == np.array([2, 2, 3, 2])).all()
+    vals = getHP(array)
+    assert (vals[0] == 2)
+    assert (vals[1] == 2)
+
+    array = np.array([
+        [0, 0, 1, 0],
+        [0, 0, 1, 0],
+        [0, 0, 1, 0],
+        [1, 1, 1, 1],
+        [1, 0, 0, 1],
+    ])
+    assert (heights(array) == np.array([2, 2, 5, 2])).all()
+    vals = getHP(array)
+    assert (vals[0] == 6)
+    assert (vals[1] == 2)
+
+    array = np.array([
+        [0, 0, 0, 0],
+        [1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 1, 0],
+        [1, 1, 1, 1],
+        [1, 0, 0, 1],
+    ])
+    assert (heights(array) == np.array([5, 2, 4, 2])).all()
+    vals = getHP(array)
+    assert (vals[0] == 7)
+
+
+    array = np.array([
+        [0, 0, 0, 0],
+        [1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 1, 0],
+        [1, 1, 1, 0],
+        [1, 0, 0, 0],
+    ])
+    assert (heights(array) == np.array([5, 2, 4, 0])).all()
+    vals = getHP(array)
+    assert (vals[0] == 9)
+    assert (vals[1] == 0)
+
+    array = np.array([
+        [0, 0, 0, 1],
+        [1, 0, 0, 1],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [1, 1, 1, 0],
+        [1, 0, 0, 0],
+    ])
+    assert (heights(array) == np.array([5, 2, 2, 6])).all()
+    vals = getHP(array)
+    assert (vals[0] == 7)
+
+    print("All tests passed!")

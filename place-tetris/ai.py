@@ -10,7 +10,7 @@ import concurrent.futures
 
 import utils
 from get_latest_profiler_data import print_stats
-from evals import *
+from evals import Evals, NUM_EVALS, getEvalLabels
 import transform_encode as te
 
 pltfm = None
@@ -101,7 +101,7 @@ class Model():
         eval_labels = getEvalLabels()
         #print(" ".join(eval_labels)) # TODO: Comment out
 
-        while not gameover and len(options) > 0 and moves < 10000: # Ends the game after 10000 moves
+        while not gameover and len(options) > 0 and moves < 1000: # Ends the game after 10000 moves
             min_cost = np.inf
             best_option = None
 
@@ -138,9 +138,9 @@ class Model():
         else:
             s_cost_metrics = norm_s_grad/moves/score
 
-        if moves == 10000:
+        if moves == 1000:
             success_log = open(F"{CURRENT_DIR}success.log", "a")
-            success_log.write("Game ended after 10000 moves\n")
+            success_log.write("Game ended after 1000 moves\n")
             success_log.write(f"{self.weights}")
             success_log.close()
 
@@ -158,7 +158,7 @@ class Model():
         return prefactor * gaussian
 
     def cost(self, state, tp=TP, ft=FT):
-        vals = getEvals(state)
+        vals = self.evals.getEvals(state)
         X = ft(self, vals)
         costs = X * self.weights
 
@@ -174,6 +174,8 @@ class Model():
     def evaluate(self, args):
         id, plays, gp = args
 
+        self.evals = Evals(gp)
+
         # Won't always put window in same place bc proccesses will finish in unknown order
         slot = id % MAX_WORKERS
 
@@ -182,15 +184,15 @@ class Model():
         pos = ((width * slot) % 2560, height * int(slot / int(2560 / width)))
 
         scores = np.zeros(plays)
-        costs = np.zeros(plays)
+        #costs = np.zeros(plays)
         shape = self.weights.shape
         # 1 for score, rest for cost metrics not including bias term
         w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
         s_cost_metrics_lst = np.zeros((plays, shape[0]))
         for i in range(plays):
-            score, cost, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
+            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
             scores[i] = score
-            costs[i] = cost
+            #costs[i] = cost
             w_cost_metrics_lst[i] = w_cost_metrics
             s_cost_metrics_lst[i] = s_cost_metrics
 
@@ -199,7 +201,7 @@ class Model():
 
         # Trim to only played games before calculating expected score
         scores = scores[:i+1]
-        costs = costs[:i+1]
+        #costs = costs[:i+1]
         score, ln_vals = expectedScore(scores, True)
 
         # Improve weighting of cost gradient of poorly preforming plays by preforming a log-norm transform on the metrics 
@@ -207,7 +209,7 @@ class Model():
         w = stats.lognorm.pdf(scores, *ln_vals)
         w_cost_metrics = np.sum(w_cost_metrics_lst[:i+1] * w[:, np.newaxis, np.newaxis], axis=0)
         s_cost_metrics = np.sum(s_cost_metrics_lst[:i+1] * w[:, np.newaxis], axis=0)
-        cost = np.sum(costs * w)
+        #cost = np.sum(costs * w)
 
         #w_cost_metrics = np.mean(w_cost_metrics, axis=0)
         #s_cost_metrics = np.mean(s_cost_metrics, axis=0)
@@ -226,7 +228,7 @@ class Model():
         df = pd.DataFrame({
             'gen': [self.gen],
             'rank': [rank(shape, scale)], #[score**3 / std],
-            'cost': [cost],
+            #'cost': [cost],
             'exp_score': [score],
             'std': [std],
             'shape': [shape],
@@ -236,12 +238,12 @@ class Model():
             'sigmas': [self.sigma],
             'w_cost_metrics': [w_cost_metrics.flatten()],
             's_cost_metrics': [s_cost_metrics],
-            'lr': [TP['learning_rate'](self.gen)],
-            'slr': [TP['s_learning_rate'](self.gen)],
-            'mr': [TP['mutation_rate'](self.gen)],
-            'ms': [TP['mutation_strength'](self.gen)],
-            'sms': [TP['s_mutation_strength'](self.gen)],
-            'af': [TP['age_factor'](self.gen-parent_gen)],
+            #lr': [TP['learning_rate'](self.gen)],
+            #'slr': [TP['s_learning_rate'](self.gen)],
+            #'mr': [TP['mutation_rate'](self.gen)],
+            #'ms': [TP['mutation_strength'](self.gen)],
+            #'sms': [TP['s_mutation_strength'](self.gen)],
+            #'af': [TP['age_factor'](self.gen-parent_gen)],
 
         })
 
@@ -281,10 +283,10 @@ class Model():
                 index = np.sum([1 for char in self.tp["feature_transform"][:bias_start] if char == ','])
 
                 # Excludes bias term from stepping gradient
-                new_weights[:, np.arange(new_weights.shape[1]) != index] += w_step[:, np.arange(new_weights.shape[1]) != index]
+                new_weights[:, np.arange(new_weights.shape[1]) != index] -= w_step[:, np.arange(new_weights.shape[1]) != index]
 
             else:
-                new_weights += w_step
+                new_weights -= w_step
 
             new_sigmas = self.sigma.copy()
             new_sigmas -= s_step
