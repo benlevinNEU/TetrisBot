@@ -95,6 +95,8 @@ class Evals():
         self.MX_HOLES = GP["rows"] * GP["cols"] / 2
         self.MX_OVERHANGS = GP["rows"] * GP["cols"] / 2
 
+        self.MAX_POINTS = 1200 + GP['rows'] - 4
+
         # Fear of Death Warning
         self.FoD_W = 4
 
@@ -133,7 +135,7 @@ class Evals():
 
         fod = min(int(self.MXH - max_height), self.FoD_W) / self.FoD_W
 
-        return n_bmps, n_max_height, n_avg_height, n_min_height, 0, 0#, n_coef, fod
+        return n_bmps, n_max_height, n_avg_height, n_min_height, n_coef, fod
 
     def getHoles(self, board):
 
@@ -199,22 +201,24 @@ class Evals():
 
     def getEvals(self, state):
 
-        board, _ = state
+        # Phantom board, Real board, actions, points
+        board, _, _, points = state
 
         board = board.copy()
         board[board > 0] = 1
 
-        points = self.getPointsForMove(state)
+        #points = self.getPointsForMove(state)
+        n_points = points / self.MAX_POINTS
 
         cleared_rows = np.sum(np.all(board != 0, axis=1))
         board = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), board[~np.all(board != 0, axis=1)]))
 
-        bmps, max_height, avg_height, min_height, mx_h4e, mn_h4e = self.getHP(board)
+        bmps, max_height, avg_height, min_height, n_coef, fod = self.getHP(board)
 
         holes, board = self.getHoles(board)  # Outputs board with holes plugged with 2's
         overhangs = self.getOverhangs(board)
 
-        vals = np.array([bmps, max_height, avg_height, min_height, holes, overhangs, points, mx_h4e, mn_h4e])
+        vals = np.array([bmps, max_height, avg_height, min_height, holes, overhangs, n_points, n_coef, fod])
 
         return vals
 
@@ -223,7 +227,8 @@ def getEvalLabels():
 
 # Tests
 if __name__ == "__main__":
-    print(getEvals((board, [])))
+    evals = Evals(GP)
+    print(evals.getEvals((board, [])))
 
     # Example usage
     array = np.array([
@@ -231,8 +236,8 @@ if __name__ == "__main__":
         [1, 1, 1, 1],
         [1, 0, 0, 1],
     ])
-    assert (heights(array) == np.array([2, 2, 3, 2])).all()
-    vals = getHP(array)
+    assert (evals.heights(array) == np.array([2, 2, 3, 2])).all()
+    vals = evals.getHP(array)
     assert (vals[0] == 2)
     assert (vals[1] == 2)
 
@@ -243,8 +248,8 @@ if __name__ == "__main__":
         [1, 1, 1, 1],
         [1, 0, 0, 1],
     ])
-    assert (heights(array) == np.array([2, 2, 5, 2])).all()
-    vals = getHP(array)
+    assert (evals.heights(array) == np.array([2, 2, 5, 2])).all()
+    vals = evals.getHP(array)
     assert (vals[0] == 6)
     assert (vals[1] == 2)
 
@@ -256,8 +261,8 @@ if __name__ == "__main__":
         [1, 1, 1, 1],
         [1, 0, 0, 1],
     ])
-    assert (heights(array) == np.array([5, 2, 4, 2])).all()
-    vals = getHP(array)
+    assert (evals.heights(array) == np.array([5, 2, 4, 2])).all()
+    vals = evals.getHP(array)
     assert (vals[0] == 7)
 
 
@@ -269,8 +274,8 @@ if __name__ == "__main__":
         [1, 1, 1, 0],
         [1, 0, 0, 0],
     ])
-    assert (heights(array) == np.array([5, 2, 4, 0])).all()
-    vals = getHP(array)
+    assert (evals.heights(array) == np.array([5, 2, 4, 0])).all()
+    vals = evals.getHP(array)
     assert (vals[0] == 9)
     assert (vals[1] == 0)
 
@@ -282,8 +287,8 @@ if __name__ == "__main__":
         [1, 1, 1, 0],
         [1, 0, 0, 0],
     ])
-    assert (heights(array) == np.array([5, 2, 2, 6])).all()
-    vals = getHP(array)
+    assert (evals.heights(array) == np.array([5, 2, 2, 6])).all()
+    vals = evals.getHP(array)
     assert (vals[0] == 7)
 
     print("All tests passed!")
