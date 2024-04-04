@@ -14,7 +14,7 @@ game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 10,
-    "rows": 22,
+    "rows": 10,
     "window_pos": (0, 0),
     "sleep": 0.01
 }
@@ -23,6 +23,7 @@ tp = {
     "feature_transform": "x",
     "max_plays": 30,
     "rank": lambda e,s: e - np.sqrt(s),
+    "profile": True
 }
 
 def playMore(scores, threshold=0.003, max_count=tp["max_plays"]):
@@ -47,7 +48,7 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 models_data_file = os.path.join(MODELS_DIR, file_name)
 
 PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
-PROFILE = False
+PROFILE = tp["profile"]
 
 tid = int(time.time())
 profiler_dir = f"{PROF_DIR}{tid}/"
@@ -71,7 +72,7 @@ t_std = 0
 t_rank = 0
 
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
-
+model.evals = Evals(game_params)
 # Format the weights for display with labels
 feature_transforms = ft.split(",")
 sp = 10
@@ -100,12 +101,20 @@ print('\n', end='')
 
 #score, _, _ = model.play(game_params, (0,0), tp)
 
-PLAY_ONCE = False
+PLAY_ONCE = True
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
     score, _, _ = model.play(game_params, (0,0), tp, ft)
     print(f"Score: {score}")
+
+    if PROFILE:
+        profiler.disable()
+        profiler.dump_stats(f"{PROF_DIR}{tid}/main.prof")
+
+        p = utils.merge_profile_stats(profiler_dir)
+        print_stats(utils.filter_methods(p, CURRENT_DIR).strip_dirs().sort_stats('tottime'))
+        print_stats(p.strip_dirs().sort_stats('tottime'), 30)
     exit()
 
 di = 8
