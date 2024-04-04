@@ -9,6 +9,8 @@ place-tetris/profiler/*
 place-tetris/__pycache__/*
 frame-tetris/__pycache__/*
 step-tetris/__pycache__/*
-__pycache__/*
 .lprof/*
 .vscode/*
+*sandbox*
+*__pycache__*
+local_params.py
