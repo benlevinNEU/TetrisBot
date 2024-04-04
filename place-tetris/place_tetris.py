@@ -251,7 +251,7 @@ class TetrisApp(object):
         #print(trimBoard(self.board).tolist() if board is None else trimBoard(board).tolist())
 
     # Preforms BFS from current state to find all possible finishing states for board for current stone and next stone
-    # VERY PROUD OF HOW BEAUTIFUL THIS METHOD IS
+    # TODO: Need to make more efficient (though current implementation is very clean and eliminates duplicate code)
     def getFinalStates(self):
 
         visited_states = set()  # To track visited states
