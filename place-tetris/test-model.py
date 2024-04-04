@@ -26,14 +26,20 @@ tp = {
     "profile": True
 }
 
-def playMore(scores, threshold=0.003, max_count=tp["max_plays"]):
+def playMore(scores, threshold=0.04, min_count=8, max_count=tp["max_plays"]):
 
-    if len(scores) < 10:
+    if len(scores) < min_count:
         return max_count  # Not enough data to make a decision
 
-    new_std = np.std(scores)
-    prev_std = np.std(scores[:-1])
-    if abs(new_std - prev_std) / prev_std < threshold:
+    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
+    log_likelihood_lognorm = np.sum(lognorm.logpdf(scores, shape_lognorm, loc_lognorm, scale_lognorm))
+    new_aic = 2*3 - 2*log_likelihood_lognorm
+
+    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores[:-1], floc=0)
+    log_likelihood_lognorm = np.sum(lognorm.logpdf(scores[:-1], shape_lognorm, loc_lognorm, scale_lognorm))
+    prev_aic = 2*3 - 2*log_likelihood_lognorm
+
+    if abs(new_aic - prev_aic) / prev_aic < threshold:
         return False  # The number of games where the estimate stabilized
 
     return True  # Return the max games if the threshold is never met
@@ -90,14 +96,14 @@ if "gauss" in ft:
 print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
-'''game_params = {
-    "gui": True,  # Set to True to visualize the game
+game_params = {
+    "gui": False,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 10,
+    "cols": 8,
     "rows": 12,
     "window_pos": (0, 0),
     "sleep": 0.01
-}'''
+}
 
 #score, _, _ = model.play(game_params, (0,0), tp)
 
@@ -105,7 +111,7 @@ PLAY_ONCE = True
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
-    score, _, _ = model.play(game_params, (0,0), tp, ft)
+    score, _, _, _ = model.play(game_params, (0,0), tp, ft)
     print(f"Score: {score}")
 
     if PROFILE:
@@ -117,26 +123,31 @@ if PLAY_ONCE:
         print_stats(p.strip_dirs().sort_stats('tottime'), 30)
     exit()
 
+def aic(scores):
+    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
+    log_likelihood_lognorm = np.sum(lognorm.logpdf(scores, shape_lognorm, loc_lognorm, scale_lognorm))
+    return  2*3 - 2*log_likelihood_lognorm
+
 di = 8
 data = []
 iters = 15
 for iter in range(iters):
     print(f"Iteration: {iter+1} / {iters}")
-    print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Std':^{di}} {'Dev':^{di}}")
+    print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}}")
     scores = np.ones(tp["max_plays"])
     for i in range(tp["max_plays"]):
-        score, _, _ = model.play(game_params, (0,0), tp, ft)
+        score, _, _, _ = model.play(game_params, (0,0), tp, ft)
         scores[i] = score
 
         print(f"{score:{di}.1f}", end=" ")
         print(f"{np.mean(scores[:i+1]):{di}.1f}", end=" ")
         print(f"{expectedScore(scores[:i+1]):{di}.1f}", end=" ")
-        print(f"{np.std(scores[:i+1]):{di}.1f}", end=" ")
+        print(f"{aic(scores[:i+1]):{di}.1f}", end=" ")
 
         # Calculate the deviation between stdevs
         if i>1: 
-            prev = np.std(scores[:i])
-            dev = (np.std(scores[:i+1]) - prev) / (prev) * 100
+            prev = aic(scores[:i])
+            dev = (aic(scores[:i+1]) - prev) / (prev) * 100
         else: 
             dev = np.inf
         print(f"{dev:{di-1}.2f}%")
@@ -146,12 +157,20 @@ for iter in range(iters):
 
     scores = scores[:i+1]
 
+    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
+    def rank(shape, scale):
+        exp = np.log(scale)
+        std = shape
+        expected_value = np.exp(exp - std/2)
+
+        return expected_value
+
     sp = 10
     print(f"Average score: {np.mean(scores):{sp}.1f}")
     print(f"{' ':<6} {'Measured':^{sp}} {'Expected':^{sp}}")
     print(f"{'Exp':<6} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
-    print(f"{'Std':<6} {f'{np.std(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
-    rank = tp['rank'](expectedScore(scores), np.std(scores))
+    print(f"{'Aic':<6} {f'{aic(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
+    rank = rank(shape_lognorm, scale_lognorm)
     print(f"{'Rank':<6} {f'{rank:.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
 
     data.append(scores)

@@ -1,0 +1,1 @@
+Find weighted integral of the ln distribution and rank using those values. Should provably be the most optimal ranking method assuming log norm is the correct dit distribution. Should write proof for presentation.
