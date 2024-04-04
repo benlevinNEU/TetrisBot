@@ -14,9 +14,9 @@ game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 10,
-    "rows": 10,
+    "rows": 20,
     "window_pos": (0, 0),
-    "sleep": 0.01
+    "sleep": 0.1
 }
 
 tp = {

@@ -324,7 +324,7 @@ class TetrisApp(object):
         else:
             # Proccess only the top 1 - PRUNE_RATIO of boards
             PRUNE_RATIO = 0.3
-            sorted_mid_boards = sorted(mid_boards, key=lambda x: x[2])  # assuming x[2] is the cost
+            sorted_mid_boards = sorted(mid_boards, key=lambda x: x[2])  # x[2] is the cost
             boards_to_process = sorted_mid_boards[:int(len(sorted_mid_boards) * (1 - PRUNE_RATIO))]
 
         # Process the selected boards
