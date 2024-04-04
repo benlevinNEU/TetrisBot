@@ -20,8 +20,8 @@ if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.releas
     #import keyboard
 else:
     pltfm = 'Mac'
-    from pynput import keyboard
-    from pynput.keyboard import Key
+    from pynput import keyboard # type: ignore
+    from keyboard import Key
 
 # Add the parent directory to sys.path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

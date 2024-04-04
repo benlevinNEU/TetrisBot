@@ -22,8 +22,8 @@ if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.releas
     #import keyboard
 else:
     pltfm = 'Mac'
-    from pynput import keyboard
-    from pynput.keyboard import Key
+    from pynput import keyboard # type: ignore
+    from keyboard import Key
 
 BUFFER_SIZE = 4
 
