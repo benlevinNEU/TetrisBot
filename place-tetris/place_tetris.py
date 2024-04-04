@@ -317,19 +317,20 @@ class TetrisApp(object):
                         queue.append((new_stone, new_x, new_y, steps + [i]))  # Enqueue new state
 
         # Check if any board has a cost that is None
-        if any(board[2] is None for board in mid_boards):
-            # If any board has a cost of None, process all boards
-            boards_to_process = mid_boards
-        else:
-            # Proccess only the top 1 - PRUNE_RATIO of boards
-            sorted_mid_boards = sorted(mid_boards, key=lambda x: x[2])  # x[2] is the cost
-            prune_ratio = cp[1]['prune_ratio']
-            boards_to_process = sorted_mid_boards[:int(len(sorted_mid_boards) * (1 - prune_ratio))]
+        if mid_boards != []:
+            if any(board[2] is None for board in mid_boards):
+                # If any board has a cost of None, process all boards
+                boards_to_process = mid_boards
+            else:
+                # Proccess only the top (1 - PRUNE_RATIO) of boards
+                sorted_mid_boards = sorted(mid_boards, key=lambda x: x[2])  # x[2] is the cost
+                prune_ratio = cp[1]['prune_ratio']
+                boards_to_process = sorted_mid_boards[:int(len(sorted_mid_boards) * (1 - prune_ratio))]
 
-        # Process the selected boards
-        for board in boards_to_process:
-            phantom, state_key, _ = board  # _ is used to ignore the cost in the unpacking as it's not needed here
-            final_boards.extend(phantom.getFinalStates(vs_key=(visited_states, state_key)))
+            # Process the selected boards
+            for board in boards_to_process:
+                phantom, state_key, _ = board  # _ is used to ignore the cost in the unpacking as it's not needed here
+                final_boards.extend(phantom.getFinalStates(vs_key=(visited_states, state_key)))
 
         if final_boards == [] and not self.phantom:
             pass
