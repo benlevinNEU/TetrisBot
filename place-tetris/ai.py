@@ -184,7 +184,6 @@ class Model():
         pos = ((width * slot) % 2560, height * int(slot / int(2560 / width)))
 
         scores = np.zeros(plays)
-        #costs = np.zeros(plays)
         shape = self.weights.shape
         # 1 for score, rest for cost metrics not including bias term
         w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
@@ -192,7 +191,6 @@ class Model():
         for i in range(plays):
             score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
             scores[i] = score
-            #costs[i] = cost
             w_cost_metrics_lst[i] = w_cost_metrics
             s_cost_metrics_lst[i] = s_cost_metrics
 
@@ -201,12 +199,12 @@ class Model():
 
         # Trim to only played games before calculating expected score
         scores = scores[:i+1]
-        #costs = costs[:i+1]
         score, ln_vals = expectedScore(scores, True)
 
         # Improve weighting of cost gradient of poorly preforming plays by preforming a log-norm transform on the metrics 
         # based on how they are distributed among the play throughs and summing the results of the transform
         w = stats.lognorm.pdf(scores, *ln_vals)
+
         w_cost_metrics = np.sum(w_cost_metrics_lst[:i+1] * w[:, np.newaxis, np.newaxis], axis=0)
         s_cost_metrics = np.sum(s_cost_metrics_lst[:i+1] * w[:, np.newaxis], axis=0)
         #cost = np.sum(costs * w)
@@ -225,12 +223,17 @@ class Model():
     
             return expected_value
 
+        def aic(scores):
+            shape_lognorm, loc_lognorm, scale_lognorm = stats.lognorm.fit(scores, floc=0)
+            log_likelihood_lognorm = np.sum(stats.lognorm.logpdf(scores, shape_lognorm, loc_lognorm, scale_lognorm))
+            return 2*3 - 2*log_likelihood_lognorm
+
         df = pd.DataFrame({
             'gen': [self.gen],
             'rank': [rank(shape, scale)], #[score**3 / std],
-            #'cost': [cost],
             'exp_score': [score],
             'std': [std],
+            'aic': [aic(scores)],
             'shape': [shape],
             'scale': [scale],
             'model': [self],
@@ -254,14 +257,14 @@ class Model():
         # TODO: Introduce momentum factor
 
         if w_grad is None:
-            w_gr_ad = np.ones([NUM_EVALS, self.fts])
+            w_grad = np.ones([NUM_EVALS, self.fts])
 
         if s_cm is None:
             s_cm = np.ones(NUM_EVALS)
 
         # Regularize gradient step scale largest step to the learning rate
-        w_l2 = np.linalg.norm(self.weights, axis=0)
-        w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad, axis=0)
+        w_l2 = np.linalg.norm(self.weights)
+        w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad)
 
         s_l2 = np.linalg.norm(self.sigma)
         s_step = TP["s_learning_rate"](gen) * s_l2 * s_cm/np.linalg.norm(s_cm)
@@ -297,9 +300,9 @@ class Model():
                     if np.random.rand() < TP["mutation_rate"](gen):
                         # Strong mutation if weight is 0
                         if new_weights[e,f] == 0:
-                            strength = w_strength[f] * 10
+                            strength = w_strength * 10
                         else:
-                            strength = w_strength[f]
+                            strength = w_strength
 
                         # Strengthen mutation for bias
                         if (index is not None) and (f == index):
@@ -325,14 +328,20 @@ class Model():
 
 # Method to play more games if the standard deviation is not stable
 # TODO: Might need to develop algo to tune theshold value
-def playMore(scores, threshold=0.003, max_count=TP["max_plays"]):
+def playMore(scores, threshold=0.04, min_count=8, max_count=TP["max_plays"]):
 
-    if len(scores) < 10:
+    if len(scores) < min_count:
         return max_count  # Not enough data to make a decision
 
-    new_std = np.std(scores)
-    prev_std = np.std(scores[:-1])
-    if abs(new_std - prev_std) / prev_std < threshold:
+    shape_lognorm, loc_lognorm, scale_lognorm = stats.lognorm.fit(scores, floc=0)
+    log_likelihood_lognorm = np.sum(stats.lognorm.logpdf(scores, shape_lognorm, loc_lognorm, scale_lognorm))
+    new_aic = 2*3 - 2*log_likelihood_lognorm
+
+    shape_lognorm, loc_lognorm, scale_lognorm = stats.lognorm.fit(scores[:-1], floc=0)
+    log_likelihood_lognorm = np.sum(stats.lognorm.logpdf(scores[:-1], shape_lognorm, loc_lognorm, scale_lognorm))
+    prev_aic = 2*3 - 2*log_likelihood_lognorm
+
+    if abs(new_aic - prev_aic) / prev_aic < threshold:
         return False  # The number of games where the estimate stabilized
 
     return True  # Return the max games if the threshold is never met
@@ -353,6 +362,25 @@ def expectedScore(scores, getVals=False):
         return expected_value, (shape_lognorm, loc_lognorm, scale_lognorm)
 
     return expected_value
+
+    '''
+    std = np.std(scores)
+    samples = len(scores)
+
+    # Base prop
+    base_prop = 0.2
+
+    # TODO: WIll need to tune this bc prop is never being adjusted bc std is always very large
+
+    # Adjust the proportion based on the standard deviation and sample size
+    # This is a simple heuristic and can be adjusted based on empirical testing
+    prop = base_prop * std / np.sqrt(samples)
+
+    # Ensure the proportion is within a sensible range, e.g., 0.01 to 0.25
+    prop = max(0.01, min(prop, 0.25))
+
+    return np.mean(stats.mstats.winsorize(scores, limits=(prop, prop)))
+    '''
 
 # Method wrapper
 def mutate_model(args):
@@ -443,13 +471,13 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
                 progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
+                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed Time / Estimate (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
                 sys.stdout.flush()
                 ret_list.append(future.result())
 
     # Write elapsed time such that it isn't overritten by the generation number and score once leaving the pool task wrapper
     # I did this so I didn't have to handle packaging it in the result
-    sys.stdout.write(f"                                           Elapsed (s): {e_time:.0f}             \r") # Overwrites the line
+    sys.stdout.write(f"                                             Elapsed (s): {e_time:.0f}             \r") # Overwrites the line
     sys.stdout.flush()
 
     return ret_list
@@ -540,11 +568,10 @@ def main(stdscr):
 
         # Evaluate all networks in parallel
         results = pool_task_wrapper(
-            evaluate_model, (population, TP["max_plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Gen Running")
+            evaluate_model, (population, TP["max_plays"], GP), (profile if MAX_WORKERS > 1 else False, tid), "Generation Running")
         raw_df = pd.concat(results, ignore_index=True)
         raw_df["gen"] = generation
-        #raw_df = raw_df.sort_values(by="rank", ascending=False)
-        raw_df = raw_df.sort_values(by="exp_score", ascending=False)
+        raw_df = raw_df.sort_values(by="rank", ascending=False)
 
         # Select top score
         top_score = raw_df.iloc[0]["exp_score"]
@@ -555,7 +582,6 @@ def main(stdscr):
 
         # Sort by preformance
         models_info = models_info.sort_values(by="rank", ascending=False)
-        #models_info = models_info.sort_values(by="cost", ascending=True)
         del models_info["model"]
 
         # Save the numpy array to the file

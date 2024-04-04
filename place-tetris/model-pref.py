@@ -66,9 +66,8 @@ def plot_model_performance(file, ax, lines):
             break
         except:
             time.sleep(1)
-    #data = data.sort_values(by="rank", ascending=False)
-    data = data.sort_values(by="exp_score", ascending=True)
-    data = data[["gen", "exp_score"]].values
+    data = data.sort_values(by="rank", ascending=False)
+    data = data[["gen", "rank"]].values
 
     generations = int(np.max(data[:, 0])) + 1
     i_s = np.array([0])
