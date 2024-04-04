@@ -253,8 +253,7 @@ class TetrisApp(object):
         #print(trimBoard(self.board).tolist() if board is None else trimBoard(board).tolist())
 
     # Preforms BFS from current state to find all possible finishing states for board for current stone and next stone
-    # TODO: Need to make more efficient (though current implementation is very clean and eliminates duplicate code)
-    # TODO: Use cost as heuristic to cut off 50% worst realboard states
+    # Uses cost as heuristic to cut off proportion of worst real board states
     # Ensures that state_key is unique when evaluating phantom states prevents dupicates from being evaluated
     def getFinalStates(self, vs_key=None, cp=None):
 
@@ -323,9 +322,9 @@ class TetrisApp(object):
             boards_to_process = mid_boards
         else:
             # Proccess only the top 1 - PRUNE_RATIO of boards
-            PRUNE_RATIO = 0.3
             sorted_mid_boards = sorted(mid_boards, key=lambda x: x[2])  # x[2] is the cost
-            boards_to_process = sorted_mid_boards[:int(len(sorted_mid_boards) * (1 - PRUNE_RATIO))]
+            prune_ratio = cp[1]['prune_ratio']
+            boards_to_process = sorted_mid_boards[:int(len(sorted_mid_boards) * (1 - prune_ratio))]
 
         # Process the selected boards
         for board in boards_to_process:

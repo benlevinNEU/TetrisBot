@@ -45,20 +45,22 @@ GP = {
 # Initialize the training parameters
 TP = {
     "population_size": 100,
-    "top_n": 20,
+    "top_n": 10,
     "generations": 1000,
-    "max_plays": 30,
-    "mutation_rate": lambda gen: 0.5 * np.exp(-0.002 * gen) + 0.1,
-    "mutation_strength": lambda gen: 0.3 * np.exp(-0.002 * gen) + 0.1,
-    "s_mutation_strength": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.02,
+    "max_plays": 20,
+    "mutation_rate": lambda gen: 0.1 * np.exp(-0.003 * gen) + 0.05,
+    "mutation_strength": lambda gen: 0.001 * np.exp(-0.005 * gen) + 0.0001,
+    "s_mutation_strength": lambda gen: 0.001 * np.exp(-0.005 * gen) + 0.0001,
     "momentum": [0.9, 0.1],
-    "profile": True,
-    "workers": 8,
-    "feature_transform": "x,1/(x+0.1),np.ones_like(x)",
-    "learning_rate": lambda gen: 0.8 * np.exp(-0.002 * gen) + 0.1,
-    "s_learning_rate": lambda gen: 0.1 * np.exp(-0.002 * gen) + 0.1,
-    "age_factor": lambda age: 0.1 * np.exp(0.05 * age) + 1,
-    "p_random": 0.1
+    "profile": False,
+    "workers": 0,
+    "feature_transform": "x",
+    "learning_rate": lambda gen: 0.01 * np.exp(-0.005 * gen) + 0.001,
+    "s_learning_rate": lambda gen: 0.01 * np.exp(-0.005 * gen) + 0.001,
+    "age_factor": lambda age: 0.05 * np.exp(0.003 * age) + 1,
+    "p_random": 0.1,
+    "prune_ratio": 0.3,
+    "cutoff": 300,
 }
 '''
 
@@ -101,7 +103,7 @@ class Model():
         eval_labels = getEvalLabels()
         #print(" ".join(eval_labels)) # TODO: Comment out
 
-        while not gameover and len(options) > 0 and moves < 1000: # Ends the game after 10000 moves
+        while not gameover and len(options) > 0 and moves < tp['cutoff']: # Ends the game after CUTOFF moves
             min_cost = np.inf
             best_option = None
 
@@ -138,10 +140,10 @@ class Model():
         else:
             s_cost_metrics = norm_s_grad/moves/score
 
-        if moves == 1000:
-            success_log = open(F"{CURRENT_DIR}success.log", "a")
-            success_log.write("Game ended after 1000 moves\n")
-            success_log.write(f"{self.weights}")
+        if moves == tp['cutoff']:
+            success_log = open(F"{CURRENT_DIR}/success.log", "a")
+            success_log.write(f"Game ended after {tp['cutoff']} moves\n")
+            success_log.write(f"{self.weights}\n")
             success_log.close()
 
         game.quit_game()
