@@ -25,7 +25,7 @@ else:
     from pynput import keyboard
     from pynput.keyboard import Key
 
-BUFFER_SIZE = 4
+BUF_SZ = 4
 
 # Get the current directory
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,19 +40,39 @@ actions = [
     lambda stone, x, y: (stone, x, y + 1)
 ]
 
+def trimBoard(board):
+    return board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ]
+
 class TetrisApp(object):
-    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, sleep=0.01, window_pos=(0, 0)):
+    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, sleep=0.01, window_pos=(0, 0), state=None):
+
         self.gui = gui
         self.sleep = sleep
+
+        self.gui = gui
+        self.cell_size = cell_size
+        self.cols = cols
+        self.rows = rows
+
+        # Phantom game that's played when evaluating moves for next stone
+        if state is not None:
+            self.board, self.stone, self.stone_x, self.stone_y, self.score, self.next_stoneID, self.steps = state
+            self.phantom = True
+
+            self.window_pos = window_pos
+
+            self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
+            self.lines = 0
+            self.level = 1
+            return
+        
+        self.phantom = False
 
         if gui:
             os.environ['SDL_VIDEO_WINDOW_POS'] = '{},{}'.format(window_pos[0], window_pos[1])  # Set window position to '0
             pygame.init()
             pygame.key.set_repeat(250, 25)
-        self.gui = gui
-        self.cell_size = cell_size
-        self.cols = cols
-        self.rows = rows
+
 
         self.width = cell_size * (cols + 6)
         self.height = cell_size * rows
@@ -82,11 +102,11 @@ class TetrisApp(object):
         board = np.zeros((self.rows, self.cols), dtype=int)
 
         # Add buffer to bottom of board to avoid index errors
-        buffer = np.ones((BUFFER_SIZE, board.shape[1]), dtype=int)
+        buffer = np.ones((BUF_SZ, board.shape[1]), dtype=int)
         board = np.vstack((buffer, board, buffer))
 
         # Add buffer to sides of board to avoid index errors
-        buffer = np.ones((board.shape[0], BUFFER_SIZE), dtype=int)
+        buffer = np.ones((board.shape[0], BUF_SZ), dtype=int)
         board = np.hstack((buffer, board, buffer))
         return board
 
@@ -97,17 +117,22 @@ class TetrisApp(object):
         self.next_stoneID = rand(len(tetris_shapes))
         self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
-        self.stone_x = int((self.board.shape[1] - 2 * BUFFER_SIZE) / 2 - len(self.stone[0]) / 2)
+        self.stone_x = int((self.board.shape[1] - 2 * BUF_SZ) / 2 - len(self.stone[0]) / 2)
         self.stone_y = 0
 
         # Drop stone until slice touches top layer of blocks        
-        non_zero_rows = np.all(self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] == 0, axis=1)
+        non_zero_rows = np.all(self.board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ] == 0, axis=1)
         top_row = len(non_zero_rows) - np.argmax(non_zero_rows[::-1])
 
         self.stone_y = max(top_row - self.stone.shape[0], 0)
         self.score += self.stone_y
 
+        # If stone is line, allows stone to start at very top
         if not self.is_valid_state(self.stone, self.stone_x, self.stone_y)[0]:
+            if self.stoneID == 5 and self.is_valid_state(self.stone, self.stone_x, self.stone_y-1)[0]:
+                self.stone_y -= 1
+                return
+
             self.gameover = True
 
     def init_game(self):
@@ -162,12 +187,26 @@ class TetrisApp(object):
                         0,
                     )
 
+    def clear_rows(self):
+        tB = trimBoard(self.board)
+        cleared_rows = np.sum(np.all(tB != 0, axis=1))
+
+        # Remove rows without zeros and add zeros at the top
+        self.board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ] = np.vstack((np.zeros((cleared_rows, tB.shape[1]), dtype=int), 
+                                                                tB[~np.all(tB != 0, axis=1)]))
+
+        points = self.add_cl_lines(cleared_rows)
+        return points, self.board.copy()
+
     def add_cl_lines(self, n):
         linescores = [0, 40, 100, 300, 1200]
         self.lines += n
-        self.score += linescores[n] * self.level
+        points = linescores[n] * self.level
+        self.score += points
         if self.lines >= self.level * 6:
             self.level += 1
+
+        return points
 
     def quit(self):
         self.center_msg("Exiting...")
@@ -202,25 +241,23 @@ class TetrisApp(object):
             
             if board is None:
                 self.draw_matrix(self.stone, (self.stone_x, self.stone_y))
-                self.draw_matrix(self.trimBoard(self.board).tolist(), (0, 0))
+                self.draw_matrix(trimBoard(self.board).tolist(), (0, 0))
             else:
                 self.draw_matrix(board.tolist(), (0, 0))
             self.draw_matrix(self.next_stone, (self.cols + 1, 2))
 
         pygame.display.update()
 
-        #print(self.trimBoard(self.board).tolist() if board is None else self.trimBoard(board).tolist())
+        #print(trimBoard(self.board).tolist() if board is None else trimBoard(board).tolist())
 
-    # Preforms BFS from current state to find all possible finishing states for board
+    # Preforms BFS from current state to find all possible finishing states for board for current stone and next stone
+    # TODO: Need to make more efficient (though current implementation is very clean and eliminates duplicate code)
     def getFinalStates(self):
 
         visited_states = set()  # To track visited states
-        final_boards = []       # To store final board states
+        final_boards = []       # To store final board states (where second stone touches bottom)
         queue = [(self.stone, self.stone_x, self.stone_y, [])]  # Initial queue with starting state and board
         current_board = self.board.copy()  # Store the current board state
-
-        if current_board.shape != (self.rows + 2*BUFFER_SIZE, self.cols + 2*BUFFER_SIZE):
-            pass
 
         while queue:
             current_stone, current_x, current_y, steps = queue.pop(0)  # Dequeue an element
@@ -233,10 +270,28 @@ class TetrisApp(object):
                         visited_states.add(state_key)
                         if touching_bottom:
                             new_board = current_board.copy()
-                            new_board[BUFFER_SIZE+new_y:BUFFER_SIZE+new_y+new_stone.shape[0], 
-                                      BUFFER_SIZE+new_x:BUFFER_SIZE+new_x+new_stone.shape[1]] += new_stone
+                            new_board[BUF_SZ+new_y:BUF_SZ+new_y+new_stone.shape[0], 
+                                      BUF_SZ+new_x:BUF_SZ+new_x+new_stone.shape[1]] += new_stone
 
-                            final_boards.append((self.trimBoard(new_board), steps + [i]))  # Store the potential final board state and steps to get there
+                            # Initialize phantom game to simulate next stone
+                            # Steps to get to this point are stored in phantom game so steps accumulated phantom can be ignored
+                            phantom = TetrisApp(gui=False, 
+                                                cell_size=self.cell_size, cols=self.cols, rows=self.rows, sleep=self.sleep, 
+                                                state=(new_board, new_stone, new_x, new_y, 0, self.next_stoneID, steps + [i]))
+                            
+                            points, new_board = phantom.clear_rows()
+                            points_scored = points + (self.score if self.phantom else 0)
+                            phantom.new_stone()
+
+                            #TODO: Consider checking for duplicate final boards. Can occur if 2 identical stones are provided back to back
+
+                            if self.phantom:
+                                # Returns the board from real game and the board from phantom game as well as steps to get to real game and points scored from both pieces
+                                # Steps to get to real game are stored in phantom game so steps accumulated in this method are ignored
+                                final_boards.append((trimBoard(new_board), trimBoard(self.board), self.steps, points_scored))
+                                #print_board(trimBoard(new_board))
+                            else:
+                                final_boards.extend(phantom.getFinalStates())
                             
                         queue.append((new_stone, new_x, new_y, steps + [i]))  # Enqueue new state
 
@@ -259,20 +314,17 @@ class TetrisApp(object):
 
         stone[insert_at] = stone[insert_at-1]*3
 
-        board[BUFFER_SIZE+y:BUFFER_SIZE+y+stone.shape[0], 
-              BUFFER_SIZE+x:BUFFER_SIZE+x+stone.shape[1]] += stone
+        board[BUF_SZ+y:BUF_SZ+y+stone.shape[0], 
+              BUF_SZ+x:BUF_SZ+x+stone.shape[1]] += stone
 
         if np.any(board == 2):
             return False, False
 
         return True, np.any(board == 4)
 
-    def trimBoard(self, board):
-        return board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE]
-
     def ai_command(self, choice):
 
-        (board, actions_) = choice
+        (f_board, r_board, actions_, _) = choice
 
         if self.gui:
             for action in actions_:
@@ -280,20 +332,13 @@ class TetrisApp(object):
                 self.update_board()
                 pygame.time.wait(int(self.sleep*1000))
 
-            self.board[BUFFER_SIZE+self.stone_y:BUFFER_SIZE+self.stone_y+self.stone.shape[0],
-                       BUFFER_SIZE+self.stone_x:BUFFER_SIZE+self.stone_x+self.stone.shape[1]] += self.stone
+            self.board[BUF_SZ+self.stone_y:BUF_SZ+self.stone_y+self.stone.shape[0],
+                       BUF_SZ+self.stone_x:BUF_SZ+self.stone_x+self.stone.shape[1]] += self.stone
 
         else:
-            self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = board
+            self.board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ] = r_board
 
-        cleared_rows = np.sum(np.all(board != 0, axis=1))
-
-        # Remove rows without zeros and add zeros at the top
-        self.board[BUFFER_SIZE:-BUFFER_SIZE, BUFFER_SIZE:-BUFFER_SIZE] = np.vstack((np.zeros((cleared_rows, board.shape[1]), dtype=int), 
-                                                                                    board[~np.all(board != 0, axis=1)]))
-
-        self.add_cl_lines(cleared_rows)
-
+        self.clear_rows()
         self.new_stone()
 
         if self.gui:

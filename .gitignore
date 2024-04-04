@@ -1,0 +1,14 @@
+
+*.pth
+step-tetris/networks/*
+frame-tetris/networks/*
+place-tetris/models/*
+step-tetris/profiler/*
+frame-tetris/profiler/*
+place-tetris/profiler/*
+place-tetris/__pycache__/*
+frame-tetris/__pycache__/*
+step-tetris/__pycache__/*
+__pycache__/*
+.lprof/*
+.vscode/*

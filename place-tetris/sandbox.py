@@ -1,3 +1,4 @@
+
 import os
 import pandas as pd
 import transform_encode as te
@@ -14,3 +15,4 @@ models_data_file = os.path.join(MODELS_DIR, file_name)
 data = pd.read_parquet(models_data_file)
 
 print(data[:TP['top_n']][['rank', 'exp_score', 'std', 'gen']])
+
