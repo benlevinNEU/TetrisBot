@@ -103,7 +103,7 @@ class Model():
         eval_labels = getEvalLabels()
         #print(" ".join(eval_labels)) # TODO: Comment out
 
-        while not gameover and len(options) > 0 and moves < tp['cutoff']: # Ends the game after CUTOFF moves
+        while not gameover and len(options) > 0 and (tp['demo'] or moves < tp['cutoff']): # Ends the game after CUTOFF moves unless demo
             min_cost = np.inf
             best_option = None
 

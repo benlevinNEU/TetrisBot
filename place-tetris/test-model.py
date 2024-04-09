@@ -13,8 +13,8 @@ from get_latest_profiler_data import print_stats
 game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 10,
-    "rows": 20,
+    "cols": 8,
+    "rows": 10,
     "window_pos": (0, 0),
     "sleep": 0.1
 }
@@ -23,7 +23,10 @@ tp = {
     "feature_transform": "x",
     "max_plays": 30,
     "rank": lambda e,s: e - np.sqrt(s),
-    "profile": True
+    "profile": True,
+    "prune_ratio": 0.3,
+    "cutoff": 5000,
+    "demo": True
 }
 
 def playMore(scores, threshold=0.04, min_count=8, max_count=tp["max_plays"]):
@@ -64,14 +67,14 @@ if PROFILE:
     profiler = cProfile.Profile()
     profiler.enable()
 
-#data = pd.read_parquet(models_data_file)
-#weights = data.sort_values(by="rank", ascending=False)["weights"].iloc[0]
-#sigmas = data.sort_values(by="rank", ascending=False)["sigmas"].iloc[0]
-#t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
-#t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
-#t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
+'''data = pd.read_parquet(models_data_file)
+weights = data.sort_values(by="rank", ascending=False)["weights"].iloc[0]
+sigmas = data.sort_values(by="rank", ascending=False)["sigmas"].iloc[0]
+t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
+t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
+t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]'''
 
-weights = np.array([3.9304998446226453, 0.6278212056361121, 30.270904991356566, 34.65472026088795, 27.326096925153074, -3.208231649499382, 0, 0, 0])
+weights = np.array([3.74041, 0.43773, 30.08081, 34.46463, 27.13600, -3.39832, -0.19009, -0.19009, -0.19009])
 sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0, 0, 0])
 t_score = 0
 t_std = 0
@@ -94,21 +97,19 @@ if "gauss" in ft:
 print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
-'''game_params = {
-    "gui": False,  # Set to True to visualize the game
+game_params = {
+    "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 8,
-    "rows": 12,
+    "cols": 10,
+    "rows": 14,
     "window_pos": (0, 0),
-    "sleep": 0.01
-}'''
+    "sleep": 0.1
+}
 
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 model.evals = Evals(game_params)
 
-#score, _, _ = model.play(game_params, (0,0), tp)
-
-PLAY_ONCE = True
+PLAY_ONCE = False
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
@@ -131,13 +132,15 @@ def aic(scores):
 
 di = 8
 data = []
-iters = 15
+iters = 3
 for iter in range(iters):
     print(f"Iteration: {iter+1} / {iters}")
-    print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}}")
+    print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}} {'Time':^{di}}")
     scores = np.ones(tp["max_plays"])
     for i in range(tp["max_plays"]):
-        score, _, _, _ = model.play(game_params, (0,0), tp, ft)
+        start = time.time()
+        score, _, _ = model.play(game_params, (0,0), tp, ft)
+        end = time.time()
         scores[i] = score
 
         print(f"{score:{di}.1f}", end=" ")
@@ -151,7 +154,9 @@ for iter in range(iters):
             dev = (aic(scores[:i+1]) - prev) / (prev) * 100
         else: 
             dev = np.inf
-        print(f"{dev:{di-1}.2f}%")
+        print(f"{dev:{di-1}.2f}%", end=" ")
+
+        print(f"{(end-start):{di}.2f}s")
 
         if not playMore(scores[:i+1]):
             break
@@ -194,14 +199,14 @@ for i in range(iters):
 
     x = np.linspace(np.min(scores), np.max(scores), 100)
 
-    # Normal distribution
+    '''# Normal distribution
     mu, sigma = norm.fit(scores)
     p_norm = norm.pdf(x, mu, sigma)
     med_norm = norm.ppf(0.5, mu, sigma)
     # Grade the normal distribution
     log_likelihood_norm = np.sum(norm.logpdf(scores, mu, sigma))
     aic_norm = 2*2 - 2*log_likelihood_norm
-    bic_norm = np.log(n)*2 - 2*log_likelihood_norm
+    bic_norm = np.log(n)*2 - 2*log_likelihood_norm'''
 
     # Log-normal distribution
     shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
@@ -213,7 +218,7 @@ for i in range(iters):
     aic_lognorm = 2*3 - 2*log_likelihood_lognorm
     bic_lognorm = np.log(n)*3 - 2*log_likelihood_lognorm
 
-    # Gamma distribution
+    '''# Gamma distribution
     alpha_gamma, loc_gamma, beta_gamma = gamma.fit(scores, floc=0)
     p_gamma = gamma.pdf(x, alpha_gamma, loc_gamma, beta_gamma)
     med_gamma = gamma.ppf(0.5, alpha_gamma, loc_gamma, beta_gamma)
@@ -229,29 +234,29 @@ for i in range(iters):
     # Grade the weibull distribution
     log_likelihood_weibull = np.sum(weibull_min.logpdf(scores, shape_weibull, loc_weibull, scale_weibull))
     aic_weibull = 2*3 - 2*log_likelihood_weibull
-    bic_weibull = np.log(n)*3 - 2*log_likelihood_weibull
+    bic_weibull = np.log(n)*3 - 2*log_likelihood_weibull'''
 
-    plt.plot(x, p_norm, 'r-', label=f'Norm: {med_norm:.1f} - ({aic_norm:.1f}, {bic_norm:.1f})')
-    plt.plot(x, p_lognorm, 'g-', label=f'Log-Norm: {med_lognorm:.1f} - ({aic_lognorm:.1f}, {bic_lognorm:.1f})')
-    plt.plot(x, p_gamma, 'b-', label=f'Gamma: {med_gamma:.1f} - ({aic_gamma:.1f}, {bic_gamma:.1f})')
-    plt.plot(x, p_weibull, '-', color='orange', label=f'Weibull: {med_weibull:.1f} - ({aic_weibull:.1f}, {bic_weibull:.1f})')
+    #plt.plot(x, p_norm, 'r-', label=f'Norm: {med_norm:.1f} - ({aic_norm:.1f}, {bic_norm:.1f})')
+    plt.plot(x, p_lognorm, 'g-', label=f'Log-Norm: {med_lognorm:.1f} - ({aic_lognorm:.1f})')
+    #plt.plot(x, p_gamma, 'b-', label=f'Gamma: {med_gamma:.1f} - ({aic_gamma:.1f}, {bic_gamma:.1f})')
+    #plt.plot(x, p_weibull, '-', color='orange', label=f'Weibull: {med_weibull:.1f} - ({aic_weibull:.1f}, {bic_weibull:.1f})')
     plt.title(f'Distribution of Scores: Exp = {expectedScore(scores):.1f}')
     plt.xlabel('Score')
     plt.ylabel('Probability Density')
     plt.legend()
 
-    df = pd.DataFrame({"norm": [med_norm], "log-norm": [med_lognorm], "gamma": [med_gamma], "weibull": [med_weibull]})
-    agr_data = pd.concat([agr_data, df], ignore_index=True)
+    #df = pd.DataFrame({"norm": [med_norm], "log-norm": [med_lognorm], "gamma": [med_gamma], "weibull": [med_weibull]})
+    #agr_data = pd.concat([agr_data, df], ignore_index=True)
 
-print("Aggregated Data")
-print(f"{' ':<10} {'Mean':<10} {'Std':<10}")
-print(f"{'Norm':<10} {agr_data['norm'].mean():<10.2f} {agr_data['norm'].std():<10.2f}")
-print(f"{'Log-Norm':<10} {agr_data['log-norm'].mean():<10.2f} {agr_data['log-norm'].std():<10.2f}")
-print(f"{'Gamma':<10} {agr_data['gamma'].mean():<10.2f} {agr_data['gamma'].std():<10.2f}")
-print(f"{'Weibull':<10} {agr_data['weibull'].mean():<10.2f} {agr_data['weibull'].std():<10.2f}")
+#print("Aggregated Data")
+#print(f"{' ':<10} {'Mean':<10} {'Std':<10}")
+#print(f"{'Norm':<10} {agr_data['norm'].mean():<10.2f} {agr_data['norm'].std():<10.2f}")
+#print(f"{'Log-Norm':<10} {agr_data['log-norm'].mean():<10.2f} {agr_data['log-norm'].std():<10.2f}")
+#print(f"{'Gamma':<10} {agr_data['gamma'].mean():<10.2f} {agr_data['gamma'].std():<10.2f}")
+#print(f"{'Weibull':<10} {agr_data['weibull'].mean():<10.2f} {agr_data['weibull'].std():<10.2f}")
 
 plt.tight_layout()
-plt.savefig(os.path.join(CURRENT_DIR, "figure.png"), bbox_inches='tight')
+plt.savefig(os.path.join(CURRENT_DIR, "figure-20x10.png"), bbox_inches='tight')
 plt.close()
 
 if PROFILE:

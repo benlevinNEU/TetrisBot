@@ -24,6 +24,7 @@ else:
     pltfm = 'Mac'
     from pynput import keyboard # type: ignore
     from keyboard import Key
+import threading
 
 BUF_SZ = 4
 
@@ -111,7 +112,7 @@ class TetrisApp(object):
         board = np.hstack((buffer, board, buffer))
         return board
 
-    def new_stone(self):
+    def new_stone(self, demo=False):
         self.stoneID = self.next_stoneID
         self.stone = self.next_stone[:]
 
@@ -119,30 +120,35 @@ class TetrisApp(object):
         self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
         self.stone_x = int((self.board.shape[1] - 2 * BUF_SZ) / 2 - len(self.stone[0]) / 2)
-        self.stone_y = 0
+        stone_y = 0
 
         # Drop stone until slice touches top layer of blocks        
         non_zero_rows = np.all(self.board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ] == 0, axis=1)
         top_row = len(non_zero_rows) - np.argmax(non_zero_rows[::-1])
 
-        self.stone_y = max(top_row - self.stone.shape[0], 0)
-        self.score += self.stone_y
+        stone_y = max(top_row - self.stone.shape[0], 0)
 
         # If stone is line, allows stone to start at very top
-        if not self.is_valid_state(self.stone, self.stone_x, self.stone_y)[0]:
-            if self.stoneID == 5 and self.is_valid_state(self.stone, self.stone_x, self.stone_y-1)[0]:
-                self.stone_y -= 1
-                return
-            
-            #self.is_valid_state(self.stone, self.stone_x, self.stone_y)[0]
+        if not self.is_valid_state(self.stone, self.stone_x, stone_y)[0]:
+            #if self.stoneID == 5 and self.is_valid_state(self.stone, self.stone_x, stone_y-1)[0]:
+            #    stone_y -= 1
+            #
+            #else:
             self.gameover = True
+
+        if not demo:
+            self.stone_y = stone_y
+            self.score += stone_y
+        else:
+            self.stone_y = 0
+            return stone_y
 
     def init_game(self):
         self.board = self.new_board()
         self.level = 1
         self.score = 0
         self.lines = 0
-        self.new_stone()
+        self.new_stone(True)
 
     def disp_msg(self, msg, topleft):
         x, y = topleft
@@ -255,7 +261,10 @@ class TetrisApp(object):
     # Preforms BFS from current state to find all possible finishing states for board for current stone and next stone
     # Uses cost as heuristic to cut off proportion of worst real board states
     # Ensures that state_key is unique when evaluating phantom states prevents dupicates from being evaluated
-    def getFinalStates(self, vs_key=None, cp=None):
+    def getFinalStates(self, vs_key=None, cp=None, stone_y=None):
+
+        if stone_y is None:
+            stone_y = self.stone_y
 
         if vs_key is None:
             visited_states, prev_state_key = set(), None
@@ -264,7 +273,7 @@ class TetrisApp(object):
 
         final_boards = []       # To store final board states (where second stone touches bottom)
         mid_boards = []         # To store board states where first stone touches bottom
-        queue = [(self.stone, self.stone_x, self.stone_y, [])]  # Initial queue with starting state and board
+        queue = [(self.stone, self.stone_x, stone_y, [])]  # Initial queue with starting state and board
         current_board = self.board.copy()  # Store the current board state
 
         while queue:
@@ -368,6 +377,8 @@ class TetrisApp(object):
         if self.gui:
             for action in actions_:
                 self.stone, self.stone_x, self.stone_y = actions[action](self.stone, self.stone_x, self.stone_y)
+                if action == 4:
+                    self.score += 1
                 self.update_board()
                 pygame.time.wait(int(self.sleep*1000))
 
@@ -376,14 +387,36 @@ class TetrisApp(object):
 
         else:
             self.board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ] = r_board
+            self.score += actions_.count(4)
 
         self.clear_rows()
-        self.new_stone()
+        y = self.new_stone(cp[1]['demo'])
 
         if self.gui:
             self.update_board()
 
-        return self.getFinalStates(cp=cp), self.gameover, self.score
+        if self.gui and cp[1]['demo']:
+            def run_in_thread(container):
+                finalStates = self.getFinalStates(cp=cp, stone_y=y)
+                container.append(finalStates)
+
+            container = []
+            thread = threading.Thread(target=run_in_thread, args=(container,))
+            thread.start()
+
+            while self.stone_y != y:
+                self.stone_y += 1
+                self.score += 1
+                self.update_board()
+                pygame.time.wait(int(self.sleep*1000))
+
+            thread.join()
+            finalStates = container[0]
+        
+        else:
+            finalStates = self.getFinalStates(cp=cp)
+
+        return finalStates, self.gameover, self.score
 
     def quit_game(self):
         pygame.quit()
