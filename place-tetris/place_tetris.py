@@ -23,7 +23,7 @@ if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.releas
 else:
     pltfm = 'Mac'
     from pynput import keyboard # type: ignore
-    from keyboard import Key
+    from pynput.keyboard import Key # type: ignore
 import threading
 
 BUF_SZ = 4

@@ -3,7 +3,7 @@ from ai import Model, playMore, expectedScore
 import numpy as np
 from evals import *
 import transform_encode as te
-import os, cProfile
+import os, cProfile, multiprocessing
 import pandas as pd
 from scipy.stats import norm, lognorm, gamma, weibull_min
 import time, utils
@@ -13,39 +13,23 @@ from get_latest_profiler_data import print_stats
 game_params = {
     "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
-    "cols": 8,
-    "rows": 10,
+    "cols": 10,
+    "rows": 14,
     "window_pos": (0, 0),
     "sleep": 0.1
 }
 
 tp = {
     "feature_transform": "x",
-    "max_plays": 30,
-    "rank": lambda e,s: e - np.sqrt(s),
-    "profile": True,
+    "max_plays": 20,
+    "profile": False,
     "prune_ratio": 0.3,
-    "cutoff": 5000,
-    "demo": True
+    "cutoff": 300,
+    "demo": False,
+    "workers": 4
 }
 
-def playMore(scores, threshold=0.04, min_count=8, max_count=tp["max_plays"]):
-
-    if len(scores) < min_count:
-        return max_count  # Not enough data to make a decision
-
-    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
-    log_likelihood_lognorm = np.sum(lognorm.logpdf(scores, shape_lognorm, loc_lognorm, scale_lognorm))
-    new_aic = 2*3 - 2*log_likelihood_lognorm
-
-    shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores[:-1], floc=0)
-    log_likelihood_lognorm = np.sum(lognorm.logpdf(scores[:-1], shape_lognorm, loc_lognorm, scale_lognorm))
-    prev_aic = 2*3 - 2*log_likelihood_lognorm
-
-    if abs(new_aic - prev_aic) / prev_aic < threshold:
-        return False  # The number of games where the estimate stabilized
-
-    return True  # Return the max games if the threshold is never met
+MAX_WORKERS = tp["workers"] if tp["workers"] > 0 else multiprocessing.cpu_count()
 
 #weights = np.array([3.9304998446226453, 0.6278212056361121, 30.518039583961556, 34.5815676211182, 27.326096925153074, -3.208231649499382])
 ft = tp["feature_transform"]
@@ -98,7 +82,7 @@ print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
 game_params = {
-    "gui": True,  # Set to True to visualize the game
+    "gui": False,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 10,
     "rows": 14,
@@ -132,17 +116,24 @@ def aic(scores):
 
 di = 8
 data = []
-iters = 3
-for iter in range(iters):
-    print(f"Iteration: {iter+1} / {iters}")
-    print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}} {'Time':^{di}}")
+iters = 4
+
+import sys
+
+def runUntilConverge(it):
+    it = it[0] + 1
+
+    #print(f"Iteration: {iter+1} / {iters}")
+    #print(f"{'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}} {'Time':^{di}}")
     scores = np.ones(tp["max_plays"])
     for i in range(tp["max_plays"]):
         start = time.time()
         score, _, _ = model.play(game_params, (0,0), tp, ft)
         end = time.time()
         scores[i] = score
-
+        
+        desc = f'{it}: {i+1}/{tp["max_plays"]}'
+        print(f"{desc:<{di}}", end=" ")
         print(f"{score:{di}.1f}", end=" ")
         print(f"{np.mean(scores[:i+1]):{di}.1f}", end=" ")
         print(f"{expectedScore(scores[:i+1]):{di}.1f}", end=" ")
@@ -172,41 +163,41 @@ for iter in range(iters):
         return expected_value
 
     sp = 10
-    print(f"Average score: {np.mean(scores):{sp}.1f}")
-    print(f"{' ':<6} {'Measured':^{sp}} {'Expected':^{sp}}")
-    print(f"{'Exp':<6} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
-    print(f"{'Aic':<6} {f'{aic(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
-    rank = rank(shape_lognorm, scale_lognorm)
-    print(f"{'Rank':<6} {f'{rank:.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
+    #print(f"Average score: {np.mean(scores):{sp}.1f}")
+    #print(f"{' ':<6} {'Measured':^{sp}} {'Expected':^{sp}}")
+    #print(f"{'Exp':<6} {f'{expectedScore(scores):.1f}':>{sp}} {f'{t_score:.1f}':>{sp}}")
+    #print(f"{'Aic':<6} {f'{aic(scores):.1f}':>{sp}} {f'{t_std:.1f}':>{sp}}")
+    #rank = rank(shape_lognorm, scale_lognorm)
+    #print(f"{'Rank':<6} {f'{rank:.1f}':>{sp}} {f'{t_rank:.1f}':>{sp}}\n")
 
-    data.append(scores)
+    return scores
+
+import concurrent.futures
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    print(f"{'Itter':^{di}} {'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}} {'Time':^{di}}")
+    
+    futures = [executor.submit(runUntilConverge, (i, )) for i in range(iters)]
+    for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
+        sys.stdout.write(f"Completed {count}/{iters}    \r")
+        sys.stdout.flush()
+        data.append(future.result())
 
 import matplotlib.pyplot as plt
 
 # Save the figure
-plt.figure(figsize=(20, 15))
+plt.figure(figsize=(10, 10))
 i=0
-agr_data = pd.DataFrame(columns=["norm", "log-norm", "gamma", "weibull"])
 for i in range(iters):
     scores = data[i]
     n = len(scores)
 
-    plt.subplot(5, 5, i+1)
+    plt.subplot(2, 2, i+1)
     plt.hist(scores, bins=30, edgecolor='black', density=True)
     plt.title(f'Iteration {i+1}')
     plt.xlabel('Score')
     plt.ylabel('Frequency')
 
     x = np.linspace(np.min(scores), np.max(scores), 100)
-
-    '''# Normal distribution
-    mu, sigma = norm.fit(scores)
-    p_norm = norm.pdf(x, mu, sigma)
-    med_norm = norm.ppf(0.5, mu, sigma)
-    # Grade the normal distribution
-    log_likelihood_norm = np.sum(norm.logpdf(scores, mu, sigma))
-    aic_norm = 2*2 - 2*log_likelihood_norm
-    bic_norm = np.log(n)*2 - 2*log_likelihood_norm'''
 
     # Log-normal distribution
     shape_lognorm, loc_lognorm, scale_lognorm = lognorm.fit(scores, floc=0)
@@ -218,42 +209,11 @@ for i in range(iters):
     aic_lognorm = 2*3 - 2*log_likelihood_lognorm
     bic_lognorm = np.log(n)*3 - 2*log_likelihood_lognorm
 
-    '''# Gamma distribution
-    alpha_gamma, loc_gamma, beta_gamma = gamma.fit(scores, floc=0)
-    p_gamma = gamma.pdf(x, alpha_gamma, loc_gamma, beta_gamma)
-    med_gamma = gamma.ppf(0.5, alpha_gamma, loc_gamma, beta_gamma)
-    # Grade the gamma distribution
-    log_likelihood_gamma = np.sum(gamma.logpdf(scores, alpha_gamma, loc_gamma, beta_gamma))
-    aic_gamma = 2*3 - 2*log_likelihood_gamma
-    bic_gamma = np.log(n)*3 - 2*log_likelihood_gamma
-
-    # Weibull distribution
-    shape_weibull, loc_weibull, scale_weibull = weibull_min.fit(scores, floc=0)
-    p_weibull = weibull_min.pdf(x, shape_weibull, loc_weibull, scale_weibull)
-    med_weibull = weibull_min.ppf(0.5, shape_weibull, loc_weibull, scale_weibull)
-    # Grade the weibull distribution
-    log_likelihood_weibull = np.sum(weibull_min.logpdf(scores, shape_weibull, loc_weibull, scale_weibull))
-    aic_weibull = 2*3 - 2*log_likelihood_weibull
-    bic_weibull = np.log(n)*3 - 2*log_likelihood_weibull'''
-
-    #plt.plot(x, p_norm, 'r-', label=f'Norm: {med_norm:.1f} - ({aic_norm:.1f}, {bic_norm:.1f})')
     plt.plot(x, p_lognorm, 'g-', label=f'Log-Norm: {med_lognorm:.1f} - ({aic_lognorm:.1f})')
-    #plt.plot(x, p_gamma, 'b-', label=f'Gamma: {med_gamma:.1f} - ({aic_gamma:.1f}, {bic_gamma:.1f})')
-    #plt.plot(x, p_weibull, '-', color='orange', label=f'Weibull: {med_weibull:.1f} - ({aic_weibull:.1f}, {bic_weibull:.1f})')
     plt.title(f'Distribution of Scores: Exp = {expectedScore(scores):.1f}')
     plt.xlabel('Score')
     plt.ylabel('Probability Density')
     plt.legend()
-
-    #df = pd.DataFrame({"norm": [med_norm], "log-norm": [med_lognorm], "gamma": [med_gamma], "weibull": [med_weibull]})
-    #agr_data = pd.concat([agr_data, df], ignore_index=True)
-
-#print("Aggregated Data")
-#print(f"{' ':<10} {'Mean':<10} {'Std':<10}")
-#print(f"{'Norm':<10} {agr_data['norm'].mean():<10.2f} {agr_data['norm'].std():<10.2f}")
-#print(f"{'Log-Norm':<10} {agr_data['log-norm'].mean():<10.2f} {agr_data['log-norm'].std():<10.2f}")
-#print(f"{'Gamma':<10} {agr_data['gamma'].mean():<10.2f} {agr_data['gamma'].std():<10.2f}")
-#print(f"{'Weibull':<10} {agr_data['weibull'].mean():<10.2f} {agr_data['weibull'].std():<10.2f}")
 
 plt.tight_layout()
 plt.savefig(os.path.join(CURRENT_DIR, "figure-20x10.png"), bbox_inches='tight')

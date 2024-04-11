@@ -26,10 +26,10 @@ def init_plot(hasTP=False):
         fig, ax1 = plt.subplots(figsize=(12, 8))
         ax2 = None
     lines = {
-        "best_rank": ax1.plot([], [], label='Best Score', linestyle='-', color='green')[0],
-        "average_top5": ax1.plot([], [], label=f'Average Score of Top {topN} Models', linestyle='-', color='blue')[0],
-        "best_rank_in_gen": ax1.plot([], [], label='Best Score In Gen', linestyle='-', color='orange')[0],
-        "average_rank_in_gen": ax1.plot([], [], label='Average Score in Gen', linestyle='-', color='red')[0]
+        "best_rank": ax1.plot([], [], label='Best Rank', linestyle='-', color='green')[0],
+        "average_top5": ax1.plot([], [], label=f'Average Rank of Top {topN} Models', linestyle='-', color='blue')[0],
+        "best_rank_in_gen": ax1.plot([], [], label='Best Rank In Gen', linestyle='-', color='orange')[0],
+        "average_rank_in_gen": ax1.plot([], [], label='Average Rank in Gen', linestyle='-', color='red')[0]
     }
 
     ax1.set_title('Model Performance Over Generations')
