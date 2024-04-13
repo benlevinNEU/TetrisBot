@@ -51,18 +51,18 @@ if PROFILE:
     profiler = cProfile.Profile()
     profiler.enable()
 
-'''data = pd.read_parquet(models_data_file)
+data = pd.read_parquet(models_data_file)
 weights = data.sort_values(by="rank", ascending=False)["weights"].iloc[0]
 sigmas = data.sort_values(by="rank", ascending=False)["sigmas"].iloc[0]
 t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
 t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
-t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]'''
+t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
 
-weights = np.array([3.74041, 0.43773, 30.08081, 34.46463, 27.13600, -3.39832, -0.19009, -0.19009, -0.19009])
+'''weights = np.array([3.74041, 0.43773, 30.08081, 34.46463, 27.13600, -3.39832, -0.19009, -0.19009, -0.19009])
 sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0, 0, 0])
 t_score = 0
 t_std = 0
-t_rank = 0
+t_rank = 0'''
 
 # Format the weights for display with labels
 feature_transforms = ft.split(",")
