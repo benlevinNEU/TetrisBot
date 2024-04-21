@@ -8,10 +8,12 @@ from place_tetris import TetrisApp
 from multiprocessing import Manager, Pool, Value
 import concurrent.futures
 
-import utils
+import utils, importlib
 from get_latest_profiler_data import print_stats
 from evals import Evals, NUM_EVALS, getEvalLabels
 import transform_encode as te
+
+import tqdm
 
 pltfm = None
 if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.release():
@@ -28,6 +30,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
+import local_params
 from local_params import GP, TP
 # Initialize the game and training parameters in "local_params.py" (Use the following as example)
 # **DO NOT COMMIT YOUR PARAMS TO GIT**
@@ -78,8 +81,12 @@ class Model():
         ft = eval(f"lambda self, x: np.array([{te.decode(tp["feature_transform"])}])")
         self.fts = ft(self, np.ones(NUM_EVALS)).shape[0]
 
-        if len(weights) == 0:
+        if len(weights) == 0 :
             weights = np.random.uniform(-15, 15, [NUM_EVALS, self.fts])
+
+        weights = np.array(weights, copy=True)
+        zero_indices = np.where(~weights.all(axis=0))[0]
+        weights[:, zero_indices] = 0.01 * weights[:, 0].reshape(-1, 1)
 
         self.weights = weights
         self.gen = gen
@@ -209,10 +216,6 @@ class Model():
 
         w_cost_metrics = np.sum(w_cost_metrics_lst[:i+1] * w[:, np.newaxis, np.newaxis], axis=0)
         s_cost_metrics = np.sum(s_cost_metrics_lst[:i+1] * w[:, np.newaxis], axis=0)
-        #cost = np.sum(costs * w)
-
-        #w_cost_metrics = np.mean(w_cost_metrics, axis=0)
-        #s_cost_metrics = np.mean(s_cost_metrics, axis=0)
         
         std = np.std(scores)
 
@@ -232,7 +235,7 @@ class Model():
 
         df = pd.DataFrame({
             'gen': [self.gen],
-            'rank': [rank(shape, scale)], #[score**3 / std],
+            'rank': [rank(shape, scale)],
             'exp_score': [score],
             'std': [std],
             'aic': [aic(scores)],
@@ -265,8 +268,11 @@ class Model():
             s_cm = np.ones(NUM_EVALS)
 
         # Regularize gradient step scale largest step to the learning rate
+        no_step = np.where(np.all(w_grad == 1, axis=0)) # Don't step on columns of grad that are all init as 1 (used when creating new FT)
         w_l2 = np.linalg.norm(self.weights, axis=0)
         w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad, axis=0)
+        w_step[:, no_step] = 0
+        w_step[:, 1] *= 50 # Strengthen step for poly tern # TODO: remove hardcoding
 
         s_l2 = np.linalg.norm(self.sigma)
         s_step = TP["s_learning_rate"](gen) * s_l2 * s_cm/np.linalg.norm(s_cm)
@@ -300,9 +306,9 @@ class Model():
             for e in range(NUM_EVALS):
                 for f in range(self.fts):
                     if np.random.rand() < TP["mutation_rate"](gen):
-                        # Strong mutation if weight is 0
-                        if new_weights[e,f] == 0:
-                            strength = w_strength[f] * 10
+                        # Strong mutation if step is 0
+                        if w_step[e,f] == 0:
+                            strength = w_strength[f] * 500 # Strengthern mutation strength on newly minted FT
                         else:
                             strength = w_strength[f]
 
@@ -449,19 +455,22 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
             futures = [executor.submit(
                 func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
+
+            print(prnt_lbl)
             # Track progress and collect results
-            for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
-                progress = (count / len(args[0])) * 100
+            #for count, future in tqdm.tqdm(enumerate(concurrent.futures.as_completed(futures), 1)):
+            for future in tqdm.tqdm(concurrent.futures.as_completed(futures)):
+                #progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
+                #sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
                 sys.stdout.flush()
                 ret_list.append(future.result())
 
     # Write elapsed time such that it isn't overritten by the generation number and score once leaving the pool task wrapper
     # I did this so I didn't have to handle packaging it in the result
-    sys.stdout.write(f"                                             Elapsed (s): {e_time:.0f}             \r") # Overwrites the line
-    sys.stdout.flush()
+    #sys.stdout.write(f"                                             Elapsed (s): {e_time:.0f}\r") # Overwrites the line
+    #sys.stdout.flush()
 
     return ret_list
 
@@ -480,12 +489,22 @@ def main(stdscr):
     multiprocessing.set_start_method('spawn')
 
     exit_event = multiprocessing.Event()
+    press_count = multiprocessing.Value('i', 0)
+    press_time = multiprocessing.Value('d', 0.0)
 
     def on_press(key):
         # Check if the pressed key is ESC
         if key == Key.esc:
-            exit_event.set()
-            return False
+            with press_count.get_lock():
+                current_time = time.time()
+                if current_time - press_time.value > 3:
+                    press_count.value = 1
+                    press_time.value = current_time
+                else:
+                    press_count.value += 1
+                if press_count.value >= 5:
+                    exit_event.set()
+                    return False
 
     # Set up the listener
     if pltfm == 'Mac':
@@ -517,6 +536,11 @@ def main(stdscr):
     generation = 0
 
     for generation in range(0, TP["generations"]):
+
+        importlib.reload(local_params)
+        global FT, MAX_WORKERS
+        FT = eval(f"lambda self, x: np.column_stack([{te.decode(TP["feature_transform"])}])")
+        MAX_WORKERS = TP["workers"] if TP["workers"] > 0 else multiprocessing.cpu_count()
 
         if not exists:
             init_tp = TP.copy()
