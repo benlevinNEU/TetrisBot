@@ -21,10 +21,10 @@ game_params = {
 
 tp = {
     "feature_transform": "x",
-    "max_plays": 20,
+    "max_plays": 30,
     "profile": False,
     "prune_ratio": 0.3,
-    "cutoff": 300,
+    "cutoff": 2000,
     "demo": False,
     "workers": 4
 }
@@ -58,11 +58,13 @@ t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
 t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
 t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
 
-'''weights = np.array([3.74041, 0.43773, 30.08081, 34.46463, 27.13600, -3.39832, -0.19009, -0.19009, -0.19009])
+#weights = np.array([ 3.15571956, -0.25365427, 29.14081868, 33.91664084, 26.58938702, -3.8851853, -0.20160058, -0.45647838, -1.09692273])
+weights = np.array([ 3.05, -0.39, 28.9,  33.91, 26.27, -4.02, -0.23, -0.57, -1.9 ])
+weights = np.array([ 3.01, -0.57, 28.76, 33.9,  26.19, -4.02, -0.32, -0.33, -2.25])
 sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0, 0, 0])
 t_score = 0
 t_std = 0
-t_rank = 0'''
+t_rank = 0
 
 # Format the weights for display with labels
 feature_transforms = ft.split(",")
@@ -216,7 +218,7 @@ for i in range(iters):
     plt.legend()
 
 plt.tight_layout()
-plt.savefig(os.path.join(CURRENT_DIR, "figure-20x10.png"), bbox_inches='tight')
+plt.savefig(os.path.join(CURRENT_DIR, "figure-14x10-success-trunc2.png"), bbox_inches='tight')
 plt.close()
 
 if PROFILE:
