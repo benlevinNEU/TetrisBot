@@ -92,6 +92,12 @@ class Evals():
         self.HS[[0,-1]] = self.MXH
         self.MX_POLY_COEF = np.polyfit(np.arange(GP['cols']), self.HS, 2)[0]
 
+        self.LS = np.zeros(GP['cols'])
+        self.LS[int(GP['cols']/4):int(np.ceil(GP['cols']*3/4))] = self.MXH
+        self.MN_POLY_COEF = np.polyfit(np.arange(GP['cols']), self.LS, 2)[0]
+
+        self.POLY_RANGE = self.MX_POLY_COEF - self.MN_POLY_COEF
+
         self.MX_HOLES = GP["rows"] * GP["cols"] / 2
         self.MX_OVERHANGS = GP["rows"] * GP["cols"] / 2
 
@@ -131,7 +137,10 @@ class Evals():
         n_min_height = min_height / self.MXH
         n_mx_h4e = mx_h4e / self.MX_DTE
         n_mn_h4e = mn_h4e / self.MX_DTE
-        n_coef = coef / self.MX_POLY_COEF
+        n_coef = (coef - self.MN_POLY_COEF)/self.POLY_RANGE # Scaling to between 0 and 1 # TODO: Convert old training data
+
+        if n_coef < 0:
+            n_coef = 0
 
         fod = min(int(self.MXH - max_height), self.FoD_W) / self.FoD_W
 

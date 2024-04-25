@@ -48,6 +48,7 @@ if __name__ == "__main__":
         #"sin(x)+cos(x)",
         #"(x/2)-(3*x)+5",
         "self.gauss(x),x,np.ones_like(x)",
+        "x,x**4,x**0.25",
     ])
 
     encoded_expressions = [encode(expr) for expr in original_expressions]

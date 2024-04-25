@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 import numpy as np
 import pandas as pd
 import os
@@ -6,7 +9,7 @@ import transform_encode as te
 # Get correct path to the models data file for current local params setup
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-file_name = os.path.join(CURRENT_DIR, "success.log")
+file_name = os.path.join(CURRENT_DIR, "../success.log")
 
 def read_and_group_lines(filename):
     # Open the file and read lines
@@ -48,4 +51,4 @@ most_common = find_most_frequent_group(groups)
 for group, count in most_common:
     print(f"Has succeeded {count} times. Here are all the weights for this model:")
     weights = np.array([float(val) for val in group])
-    print(weights.reshape(9, 2))
+    print(weights.reshape(9, 3))

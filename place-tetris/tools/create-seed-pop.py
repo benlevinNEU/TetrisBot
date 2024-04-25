@@ -1,4 +1,6 @@
-import os
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 import pandas as pd
 import numpy as np
 from local_params import GP, TP
@@ -6,7 +8,7 @@ import transform_encode as te
 
 # Setup directories and filenames
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
+MODELS_DIR = os.path.join(CURRENT_DIR, "../models/")
 ft = TP["feature_transform"]
 nft = ft.count(',') + 1  # Assuming this correctly calculates the number of features
 source_name = f"models_{GP['rows']}x{GP['cols']}_{te.encode(ft)}_old.parquet"

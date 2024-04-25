@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -8,7 +11,7 @@ import scipy.integrate as integrate
 
 # Get correct path to the models data file for current local params setup
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
+MODELS_DIR = os.path.join(CURRENT_DIR, "../models/")
 
 from local_params import GP, TP
 

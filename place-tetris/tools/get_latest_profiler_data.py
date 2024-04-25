@@ -9,7 +9,7 @@ from pstats import func_std_string
 
 # Get correct path to the profiles data file for current local params setup
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROFILE_DIR = os.path.join(CURRENT_DIR, "profiler/")
+PROFILE_DIR = os.path.join(CURRENT_DIR, "../profiler/")
 
 np = 12
 sp = 3

@@ -76,7 +76,7 @@ PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
 class Model():
-    def __init__(self, tp=TP, weights=[], sigmas=np.random.uniform(0.01, 0.99, NUM_EVALS), gen=1, parent_gen=0):
+    def __init__(self, tp=TP, weights=[], sigmas=np.random.uniform(0.01, 0.99, NUM_EVALS), gen=1, parent_gen=0, parentID=None, id=None):
         self.sigma = sigmas
         ft = eval(f"lambda self, x: np.array([{te.decode(tp["feature_transform"])}])")
         self.fts = ft(self, np.ones(NUM_EVALS)).shape[0]
@@ -92,6 +92,11 @@ class Model():
         self.gen = gen
         self.tp = tp
         self.parent_gen = parent_gen
+        self.parentID = parentID
+        if id is None:
+            self.id = str(hash((gen, str(weights))))
+        else:
+            self.id = id
 
     def play(self, gp, pos, tp=TP, ft=FT):
         game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
@@ -169,6 +174,8 @@ class Model():
     def cost(self, state, tp=TP, ft=FT):
         vals = self.evals.getEvals(state)
         X = ft(self, vals)
+        if np.isnan(X).any():
+            raise ValueError("X contains NaN values")
         costs = X * self.weights
 
         sigma_grad = None
@@ -242,6 +249,8 @@ class Model():
             'shape': [shape],
             'scale': [scale],
             'model': [self],
+            'id': [self.id],
+            'parentID': [self.parentID],
             'weights': [self.weights.flatten()],
             'sigmas': [self.sigma],
             'w_cost_metrics': [w_cost_metrics.flatten()],
@@ -257,7 +266,7 @@ class Model():
 
         return df
 
-    def mutate(self, gen, w_grad=None, s_cm=None):
+    def mutate(self, gen, w_grad=None, s_cm=None, max_children=-1):
 
         # TODO: Introduce momentum factor
 
@@ -267,25 +276,31 @@ class Model():
         if s_cm is None:
             s_cm = np.ones(NUM_EVALS)
 
+        age_factor = min(100, TP['age_factor'](gen - self.gen))
+
         # Regularize gradient step scale largest step to the learning rate
         no_step = np.where(np.all(w_grad == 1, axis=0)) # Don't step on columns of grad that are all init as 1 (used when creating new FT)
         w_l2 = np.linalg.norm(self.weights, axis=0)
         w_step = TP["learning_rate"](gen) * w_l2 * w_grad/np.linalg.norm(w_grad, axis=0)
         w_step[:, no_step] = 0
-        w_step[:, 1] *= 50 # Strengthen step for poly tern # TODO: remove hardcoding
 
         s_l2 = np.linalg.norm(self.sigma)
         s_step = TP["s_learning_rate"](gen) * s_l2 * s_cm/np.linalg.norm(s_cm)
         
-        nchildren = int(TP["population_size"] * (1 - TP["p_random"]) / TP["top_n"])
+        if max_children == -1: # For lineage limiting
+            max_children = TP["population_size"]*TP["lin_prop_max"]
+        nchildren = min(int(TP["population_size"] * (1 - TP["p_random"]) / TP["top_n"]), int(max_children))
         children = []
-        age_factor = min(100, TP['age_factor'](gen - self.gen))
 
         # Regularize mutation
         w_strength = TP["mutation_strength"](gen) * w_l2
         s_strength = TP["s_mutation_strength"](gen) * s_l2
         for _ in range(nchildren):
             new_weights = self.weights.copy()
+
+            # Age factor for learning rate (randomly increases or decreases learning rate based on age factor)
+            lr_age_factor = age_factor if np.random.rand() < 0.5 else 1 / age_factor
+            w_step_af = w_step * lr_age_factor
 
             # Check if bias term is included in feature transform
             index = None
@@ -294,10 +309,10 @@ class Model():
                 index = np.sum([1 for char in self.tp["feature_transform"][:bias_start] if char == ','])
 
                 # Excludes bias term from stepping gradient
-                new_weights[:, np.arange(new_weights.shape[1]) != index] -= w_step[:, np.arange(new_weights.shape[1]) != index]
+                new_weights[:, np.arange(new_weights.shape[1]) != index] -= w_step_af[:, np.arange(new_weights.shape[1]) != index]
 
             else:
-                new_weights -= w_step
+                new_weights -= w_step_af
 
             new_sigmas = self.sigma.copy()
             new_sigmas -= s_step
@@ -328,7 +343,7 @@ class Model():
 
             new_sigmas = np.clip(new_sigmas, 0.01, 0.99)
 
-            model = Model(weights=new_weights, sigmas=new_sigmas, parent_gen=gen)
+            model = Model(weights=new_weights, sigmas=new_sigmas, parent_gen=gen, parentID=self.id, tp=self.tp)
             model.tp = None # Remove reference to TP for pickling
             children.append(model)
 
@@ -375,9 +390,9 @@ def expectedScore(scores, getVals=False):
 def mutate_model(args):
     model_df, _, gen = args # id is not used
     weights = model_df['weights'].reshape([NUM_EVALS, int(len(model_df['weights'])/NUM_EVALS)])
-    model = Model(weights=weights, sigmas=model_df['sigmas'], gen=model_df['gen'])
+    model = Model(weights=weights, sigmas=model_df['sigmas'], gen=model_df['gen'], parentID=model_df['parentID'], id=model_df['id'])
     w_cm = model_df['w_cost_metrics'].reshape([NUM_EVALS, model.fts])
-    return model.mutate(gen, w_cm, model_df['s_cost_metrics'])
+    return model.mutate(gen, w_cm, model_df['s_cost_metrics'], model_df['max_children'])
 
 # Method wrapperop  _ste[]
 def evaluate_model(args):
@@ -436,7 +451,7 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
     start_time = time.time()  # Assign a valid value to start_time
 
     # For easier debugging
-    # Raper method hides source of thrownxceptions
+    # Wrapper method hides source of thrownxceptions
     if MAX_WORKERS == 1: 
         # Execute the task function sequentiallyodel
         for id, model in args[0].iterrows():
@@ -455,26 +470,117 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
             futures = [executor.submit(
                 func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
+            sys.stdout.write(f"\r{prnt_lbl}: {0:.2f}% of {len(args[0])} - Elapsed / Est (s): {0:.0f} / Unknown             ") # Overwrites the line
+            sys.stdout.flush()
 
-            print(prnt_lbl)
+            # print(prnt_lbl)
             # Track progress and collect results
-            #for count, future in tqdm.tqdm(enumerate(concurrent.futures.as_completed(futures), 1)):
-            for future in tqdm.tqdm(concurrent.futures.as_completed(futures)):
-                #progress = (count / len(args[0])) * 100
+            for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            #for future in tqdm.tqdm(concurrent.futures.as_completed(futures)):
+                progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                #sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
+                sys.stdout.write(f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             ") # Overwrites the line
                 sys.stdout.flush()
                 ret_list.append(future.result())
 
     # Write elapsed time such that it isn't overritten by the generation number and score once leaving the pool task wrapper
     # I did this so I didn't have to handle packaging it in the result
-    #sys.stdout.write(f"                                             Elapsed (s): {e_time:.0f}\r") # Overwrites the line
-    #sys.stdout.flush()
+    sys.stdout.write(f"\r                                             Elapsed (s): {e_time:.0f}") # Overwrites the line
+    sys.stdout.flush()
 
     return ret_list
 
+def getParents(models_info, pop_size, n_parents, lin_prop_max, p_random):
+    # Sort models by descending rank (assuming rank is higher for better models)
+    models = models_info.sort_values(by="rank", ascending=False)
+
+    child_set = pop_size * (1 - p_random)
+    
+    # Initialize lineage tracking and parent selection
+    lineage_dict = {}
+    lineage_counts = {}
+    parents = pd.DataFrame(columns=models_info.columns)
+    parents['max_children'] = []
+
+    # Assign each model to its own lineage initially
+    for index, model in models.iterrows():
+        lineage_dict[model['id']] = set([model['id']])
+        lineage_counts[model['id']] = 0
+
+    # Merge lineages based on parent-child relationships
+    for index, model in models.iterrows():
+        child_id = model['id']
+        parent_id = model['parentID']
+        if parent_id in models['id'].values:
+            lineage_dict[child_id].update(lineage_dict[parent_id])
+            for key, lineage in lineage_dict.items():
+                if parent_id in lineage:
+                    lineage.update(lineage_dict[child_id])
+
+    # Select parents ensuring lineage proportions are maintained
+    total_selected = 0
+    for index, model in models.iterrows():
+        if n_parents >= n_parents and total_selected >= child_set:
+            break
+        
+        current_id = model['id']
+        # Identify the lineage of the current model
+        current_lineage = lineage_dict[current_id]
+
+        # Calculate the total offspring allowed for the lineage
+        lineage_limit = int(np.ceil(lin_prop_max * child_set))
+
+        # Sum the current offspring count for all members of this lineage
+        current_lineage_offspring = sum([lineage_counts[id] for id in current_lineage])
+
+        # Determine available slots for this lineage
+        available_slots = min(lineage_limit - current_lineage_offspring, int(np.ceil(child_set / n_parents)))
+
+        if available_slots == 0:
+            # Reduce the 'max_children' value for all models in the current lineage to accomadate the new model
+            '''for _, parent in parents.iterrows():
+                if parent['id'] in current_lineage:
+                    parent['max_children'] = int(parent['max_children'] * len(parents) / (len(parents) + 1))'''
+
+            lineage_parent_indices = parents[parents['id'].isin(current_lineage)].index
+            parents.loc[lineage_parent_indices, 'max_children'] = np.ceil((parents.loc[lineage_parent_indices, 'max_children'] * len(parents) / (len(parents) + 1))).astype(int)
+
+            # Sum the current offspring count for all members of this lineage
+            current_lineage_offspring = sum([lineage_counts[id] for id in current_lineage])
+            if current_lineage_offspring >= lineage_limit:
+                child_set += 1
+
+            # Enable an extra child to be selected for this lineage if lineage is full
+            lineage_limit += 1
+
+            # Determine available slots for this lineage
+            available_slots = lineage_limit - current_lineage_offspring
+
+            # Flexible number of parents to accomadate all best preforming parents by reducing number of kids per parent
+            n_parents += 1
+        
+        if available_slots > 0:
+            selected_slots = int(min(available_slots, child_set - total_selected))
+            # Append to parents DataFrame
+            new_model = model.copy()
+            new_model['max_children'] = selected_slots
+            new_model_df = pd.DataFrame([new_model])
+            if parents.empty:
+                parents = new_model_df
+            else:
+                parents = pd.concat([parents, new_model_df])
+            
+            # Update lineage counts
+            for id in current_lineage:
+                lineage_counts[id] += selected_slots
+            total_selected += selected_slots
+
+    return parents
+
 def main(stdscr):
+
+    global TP, GP, FT, MAX_WORKERS
 
     ## General Setup
     profile = TP["profile"]
@@ -538,7 +644,6 @@ def main(stdscr):
     for generation in range(0, TP["generations"]):
 
         importlib.reload(local_params)
-        global FT, MAX_WORKERS
         FT = eval(f"lambda self, x: np.column_stack([{te.decode(TP["feature_transform"])}])")
         MAX_WORKERS = TP["workers"] if TP["workers"] > 0 else multiprocessing.cpu_count()
 
@@ -561,9 +666,11 @@ def main(stdscr):
             models_data_file = os.path.join(MODELS_DIR, file_name)
             #models_info = np.load(models_data_file)
             saved_models_info = pd.read_parquet(models_data_file)
+
             generation = int(np.max(saved_models_info['gen'])) + 1
             
-            top_models = saved_models_info.head(TP["top_n"]) # 2 Labels before weights (score, generation)
+            top_models = getParents(saved_models_info, TP['population_size'], TP['top_n'], TP['lin_prop_max'], TP['p_random'])
+
             population = pd.concat(pool_task_wrapper(
                 mutate_model, (top_models, generation), (profile if MAX_WORKERS > 1 else False, tid), "Mutating"), ignore_index=True)
 
@@ -582,7 +689,7 @@ def main(stdscr):
 
         # Select top score
         top_score = raw_df.iloc[0]["exp_score"]
-        print(f"Generation {generation}: Top Expected Score = {top_score:.1f}\r")
+        print(f"\rGeneration {generation}: Top Expected Score = {top_score:.1f}")
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = pd.concat([saved_models_info, raw_df])
