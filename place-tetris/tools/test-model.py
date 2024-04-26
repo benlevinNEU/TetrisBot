@@ -29,12 +29,13 @@ tp = {
     "prune_ratio": 0.2,
     "cutoff": 1000,
     "demo": False,
-    "workers": 4
+    "workers": 4,
+    "snap_prob": lambda mxh: 0.12 * mxh**8,
+    "use_snap_prob": 0.5,
 }
 
 MAX_WORKERS = tp["workers"] if tp["workers"] > 0 else multiprocessing.cpu_count()
 
-#weights = np.array([3.9304998446226453, 0.6278212056361121, 30.518039583961556, 34.5815676211182, 27.326096925153074, -3.208231649499382])
 ft = tp["feature_transform"]
 nft = ft.count(',') + 1
 file_name = f"models_{game_params['rows']}x{game_params['cols']}_{te.encode(ft)}.parquet"
@@ -61,7 +62,7 @@ t_score = data.sort_values(by="rank", ascending=False)["exp_score"].iloc[0]
 t_std = data.sort_values(by="rank", ascending=False)["std"].iloc[0]
 t_rank = data.sort_values(by="rank", ascending=False)["rank"].iloc[0]
 
-weights = np.array([  4.14,   6.85,   5.67,
+'''weights = np.array([  4.14,   6.85,   5.67,
   12.05,   2.26,  13.13,
    7.71,   5.33, -15.06,
   10.38,   9.93,  -7.79,
@@ -70,12 +71,10 @@ weights = np.array([  4.14,   6.85,   5.67,
   -0.65,  14.59,  -8.46,
  -11.49,  -2.71,  12.88,
   -7.44,  -4.03,   3.37])
-weights = np.array([ 3.05, -0.39, 28.9,  33.91, 26.27, -4.02, -0.23, -0.57, -1.9 ])
-weights = np.array([ 3.01, -0.57, 28.76, 33.9,  26.19, -4.02, -0.32, -0.33, -2.25])
 sigmas = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0])
 t_score = 0
 t_std = 0
-t_rank = 0
+t_rank = 0'''
 
 # Format the weights for display with labels
 feature_transforms = ft.split(",")
@@ -86,7 +85,12 @@ print(f'{' ':<{sp}}' + " ".join([f'{val:^{sp}}' for val in feature_transforms]))
 labels = getEvalLabels()
 for i, row in enumerate(weights.reshape(NUM_EVALS, nft)):
     label = labels[i]
-    print(f"{label:<{sp}}{' '.join([f'{f'{val:.5f}':>{sp}}' for val in row])}")
+    print(f"{label:<{sp}}{' '.join([f'{f'{val:.5f}':>{sp}}' for val in row])}", end=' -> ')
+    eq = f"{' '.join([f'{f'{val:.5f}':>{sp}}*{ft} +' for val,ft in zip(row, feature_transforms)])[:-2]}"
+    eq = eq.replace('**', '^')
+    eq = eq.replace('(', '{')
+    eq = eq.replace(')', '}')
+    print(eq)
 
 if "gauss" in ft:
     print(sigmas)
@@ -139,7 +143,7 @@ def runUntilConverge(it):
     scores = np.ones(tp["max_plays"])
     for i in range(tp["max_plays"]):
         start = time.time()
-        score, _, _ = model.play(game_params, (0,0), tp, ft)
+        score, _, _ = model.play(game_params, (0,0), tp, ft, False)
         end = time.time()
         scores[i] = score
         

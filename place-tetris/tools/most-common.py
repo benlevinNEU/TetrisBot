@@ -27,7 +27,7 @@ def read_and_group_lines(filename):
         str = [s.strip().strip('[]') for s in group]
         cleaned_group = []
         for s in str:
-            cleaned_group.extend([f"{float(val):.2f}" for val in s.split()])
+            cleaned_group.extend([f"{float(val):.6f}" for val in s.split()])
         cleaned_group = np.array(cleaned_group)
         
         groups.append(cleaned_group)

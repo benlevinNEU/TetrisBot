@@ -22,6 +22,8 @@ try:
     sys.stderr = open(os.devnull, 'w')
     sys.stdout = open(os.devnull, 'w')
     import matplotlib.pyplot as plt
+    manager = plt.get_current_fig_manager()
+    manager.window.showMaximized()
 
 finally:
     # Restore the original stderr
@@ -131,6 +133,7 @@ def visualize_lineages(df, N=30, K=10):
     # Display the plot
     plt.title('Model Lineages Visualization')
     plt.axis('off')  # Turn off the axis
+    # Set the window size to full screen
     plt.show()
 
 # Example DataFrame

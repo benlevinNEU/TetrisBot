@@ -100,11 +100,11 @@ class Model():
         
         self.snapshots = []
 
-    def play(self, gp, pos, tp=TP, ft=FT):
+    def play(self, gp, pos, tp=TP, ft=FT, use_snap=True):
 
         # Loop to initialize game until a valid starting state is found if starting from snap
         while True:
-            if np.random.rand() < tp['use_snap_prob'] and len(self.snapshots) > 0:
+            if np.random.rand() < tp['use_snap_prob'] and len(self.snapshots) > 0 and use_snap:
                 choice = np.random.choice(np.arange(len(self.snapshots)))
                 snapshot = self.snapshots[choice]
 
