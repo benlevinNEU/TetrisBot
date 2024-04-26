@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 import os, sys, time, cProfile, multiprocessing, platform, re
-from place_tetris import TetrisApp
+from place_tetris import TetrisApp, trimBoard
 
 from multiprocessing import Manager, Pool, Value
 import concurrent.futures
@@ -97,14 +97,41 @@ class Model():
             self.id = str(hash((gen, str(weights))))
         else:
             self.id = id
+        
+        self.snapshots = []
 
     def play(self, gp, pos, tp=TP, ft=FT):
-        game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
-        
-        if gp["gui"]:
-            game.update_board()
 
-        options = game.getFinalStates()
+        # Loop to initialize game until a valid starting state is found if starting from snap
+        while True:
+            if np.random.rand() < tp['use_snap_prob'] and len(self.snapshots) > 0:
+                choice = np.random.choice(np.arange(len(self.snapshots)))
+                snapshot = self.snapshots[choice]
+
+                self.snapshots.pop(choice)
+                snapscore = snapshot[1]
+                game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos, snap=snapshot)
+
+                snap_log = open(f"{CURRENT_DIR}/snap.log", "a")
+                snap_log.write(f"Model ID: {self.id}\n")
+                snap_log.write(f"Snapshot Used\n")
+                snap_log.write(f"Score: {snapshot[1]}\n")
+                snap_log.write(f"{trimBoard(snapshot[0])}\n")
+                snap_log.close()
+
+            else:
+                snapscore = 0
+                snapshot = None
+                game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
+            
+            if gp["gui"]:
+                game.update_board()
+
+            options = game.getFinalStates()
+
+            if len(options) > 0:
+                break
+
         gameover = False
         score = 0
         tot_cost = 0
@@ -124,7 +151,7 @@ class Model():
                 if option is None:
                     raise ValueError("Option is None")
 
-                c, w_grad, s_grad = self.cost(option, tp, ft)
+                c, w_grad, s_grad, mxh = self.cost(option, tp, ft)
                 if c < min_cost:
                     min_cost = c
                     best_option = option
@@ -142,23 +169,42 @@ class Model():
                 norm_s_grad += min_s_grad
 
             moves += 1
-            options, game_over, score = game.ai_command(best_option, cp=(self, tp, ft))
+            options, game_over, score, snapshot = game.ai_command(best_option, cp=(self, tp, ft))
+
+            if score == 0:
+                raise ValueError("Score is 0")
+
+            # Save snapshot of the game state
+            if np.random.rand() < tp['snap_prob'](mxh):
+                self.snapshots.append(snapshot)
+
+                snap_log = open(f"{CURRENT_DIR}/snap.log", "a")
+                snap_log.write(f"Snapshot Taken\n")
+                snap_log.write(f"Model ID: {self.id}\n")
+                snap_log.write(f"Score: {snapshot[1]}\n")
+                snap_log.write(f"{trimBoard(snapshot[0])}\n")
+                snap_log.close()
+
+        # In the event that no more points are scored
+        if score - snapscore == 0:
+            return score, np.zeros([NUM_EVALS, self.fts]), np.zeros(NUM_EVALS)
 
         # Return the absolute value of the average cost per move and the average gradient
-        w_cost_metrics = norm_c_grad/moves/score
+        w_cost_metrics = norm_c_grad/moves/(score - snapscore) 
 
         if norm_s_grad is None:
             s_cost_metrics = None
         else:
-            s_cost_metrics = norm_s_grad/moves/score
+            s_cost_metrics = norm_s_grad/moves/(score - snapscore)
 
         if moves == tp['cutoff']:
-            success_log = open(F"{CURRENT_DIR}/success.log", "a")
+            success_log = open(f"{CURRENT_DIR}/success.log", "a")
             success_log.write(f"Game ended after {tp['cutoff']} moves\n")
             success_log.write(f"{self.weights}\n")
             success_log.close()
 
         game.quit_game()
+
         return score, w_cost_metrics, s_cost_metrics
     
     def gauss(self, x, mu=0.5):
@@ -185,7 +231,9 @@ class Model():
             gWeights = self.weights[:, index]
             sigma_grad = self.sigma_grad(vals) * gWeights
 
-        return np.sum(costs), X, sigma_grad
+        mxh = vals[1] # Save max height for snapshot
+
+        return np.sum(costs), X, sigma_grad, mxh
 
     def evaluate(self, args):
         id, plays, gp = args
@@ -255,13 +303,6 @@ class Model():
             'sigmas': [self.sigma],
             'w_cost_metrics': [w_cost_metrics.flatten()],
             's_cost_metrics': [s_cost_metrics],
-            #lr': [TP['learning_rate'](self.gen)],
-            #'slr': [TP['s_learning_rate'](self.gen)],
-            #'mr': [TP['mutation_rate'](self.gen)],
-            #'ms': [TP['mutation_strength'](self.gen)],
-            #'sms': [TP['s_mutation_strength'](self.gen)],
-            #'af': [TP['age_factor'](self.gen-parent_gen)],
-
         })
 
         return df
@@ -646,6 +687,11 @@ def main(stdscr):
         importlib.reload(local_params)
         FT = eval(f"lambda self, x: np.column_stack([{te.decode(TP["feature_transform"])}])")
         MAX_WORKERS = TP["workers"] if TP["workers"] > 0 else multiprocessing.cpu_count()
+
+        # Clear the snap log
+        snap_log = open(f"{CURRENT_DIR}/snap.log", "w")
+        snap_log.write(f"")
+        snap_log.close()
 
         if not exists:
             init_tp = TP.copy()

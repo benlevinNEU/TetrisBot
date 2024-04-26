@@ -45,7 +45,7 @@ def trimBoard(board):
     return board[BUF_SZ:-BUF_SZ, BUF_SZ:-BUF_SZ]
 
 class TetrisApp(object):
-    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, sleep=0.01, window_pos=(0, 0), state=None):
+    def __init__(self, gui=True, cell_size=CELL_SIZE, cols=COLS, rows=ROWS, sleep=0.01, window_pos=(0, 0), state=None, snap=None):
 
         self.gui = gui
         self.sleep = sleep
@@ -94,12 +94,16 @@ class TetrisApp(object):
         self.next_stone = np.array(tetris_shapes[self.next_stoneID], dtype=int)
 
         self.gameover = False
-        self.moves_wo_drop = 0
-        self.max_moves_wo_drop = cols * 2
 
         self.states = {}
+
+        if snap is not None:
+            self.board, self.score, self.level, self.lines = snap
+            self.new_stone(True)
+            return
+
         self.init_game()
-    
+        
     def new_board(self):
         board = np.zeros((self.rows, self.cols), dtype=int)
 
@@ -317,7 +321,7 @@ class TetrisApp(object):
                                 if cp is not None:
                                     model = cp[0]
                                     option = (trimBoard(new_board), None, None, points_scored)
-                                    cost, _, _ = model.cost(option, *cp[1:])
+                                    cost, _, _, _ = model.cost(option, *cp[1:])
 
                                 phantom.new_stone()
                                 if not phantom.gameover:
@@ -416,7 +420,9 @@ class TetrisApp(object):
         else:
             finalStates = self.getFinalStates(cp=cp)
 
-        return finalStates, self.gameover, self.score
+        snapshot = (self.board.copy(), self.score, self.level, self.lines)
+
+        return finalStates, self.gameover, self.score, snapshot
 
     def quit_game(self):
         pygame.quit()
