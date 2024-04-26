@@ -48,22 +48,25 @@ GP = {
 # Initialize the training parameters
 TP = {
     "population_size": 100,
-    "top_n": 10,
+    "top_n": 40,
     "generations": 1000,
-    "max_plays": 20,
-    "mutation_rate": lambda gen: 0.1 * np.exp(-0.003 * gen) + 0.05,
-    "mutation_strength": lambda gen: 0.001 * np.exp(-0.005 * gen) + 0.0001,
-    "s_mutation_strength": lambda gen: 0.001 * np.exp(-0.005 * gen) + 0.0001,
-    "momentum": [0.9, 0.1],
+    "max_plays": 30,
+    "mutation_rate": lambda gen: 0.1 * np.exp(-0.01 * gen) + 0.01,
+    "mutation_strength": lambda gen: 0.001 * np.exp(-0.02 * gen) + 0.00001,
+    "s_mutation_strength": lambda gen: 0.001 * np.exp(-0.02 * gen) + 0.00001,
     "profile": False,
     "workers": 0,
-    "feature_transform": "x",
-    "learning_rate": lambda gen: 0.01 * np.exp(-0.005 * gen) + 0.001,
-    "s_learning_rate": lambda gen: 0.01 * np.exp(-0.005 * gen) + 0.001,
-    "age_factor": lambda age: 0.05 * np.exp(0.003 * age) + 1,
-    "p_random": 0.1,
-    "prune_ratio": 0.3,
-    "cutoff": 300,
+    "feature_transform": "x,x**3,x**(1/3)",
+    "learning_rate": lambda gen: 0.01 * np.exp(-0.02 * gen) + 0.0001,
+    "s_learning_rate": lambda gen: 0.01 * np.exp(-0.02 * gen) + 0.0001,
+    "age_factor": lambda x: 1.2**x,
+    "p_random": 0.2,
+    "prune_ratio": 0.2,
+    "cutoff": 500,
+    'lin_prop_max': 0.2,
+    "demo": False,
+    "snap_prob": lambda mxh: 0.12 * mxh**8,
+    "use_snap_prob": 0.5,
 }
 '''
 
@@ -205,7 +208,7 @@ class Model():
 
         game.quit_game()
 
-        return score, w_cost_metrics, s_cost_metrics
+        return score, w_cost_metrics, s_cost_metrics, moves
     
     def gauss(self, x, mu=0.5):
         #print(f"sigma: {self.sigma}")
@@ -253,7 +256,7 @@ class Model():
         w_cost_metrics_lst = np.zeros((plays,shape[0],shape[1])) 
         s_cost_metrics_lst = np.zeros((plays, shape[0]))
         for i in range(plays):
-            score, w_cost_metrics, s_cost_metrics = self.play(gp, pos, TP)
+            score, w_cost_metrics, s_cost_metrics, _ = self.play(gp, pos, TP)
             scores[i] = score
             w_cost_metrics_lst[i] = w_cost_metrics
             s_cost_metrics_lst[i] = s_cost_metrics

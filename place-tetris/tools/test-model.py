@@ -114,8 +114,12 @@ PLAY_ONCE = False
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
-    score, _, _ = model.play(game_params, (0,0), tp, ft)
+    start_time = time.time()
+    score, _, _, moves = model.play(game_params, (0,0), tp, ft, False)
+    end_time = time.time()
     print(f"Score: {score}")
+    print(f"Moves: {moves}")
+    print(f"Time: {end_time - start_time}")
 
     if PROFILE:
         profiler.disable()
@@ -143,7 +147,7 @@ def runUntilConverge(it):
     scores = np.ones(tp["max_plays"])
     for i in range(tp["max_plays"]):
         start = time.time()
-        score, _, _ = model.play(game_params, (0,0), tp, ft, False)
+        score, _, _, moves = model.play(game_params, (0,0), tp, ft, False)
         end = time.time()
         scores[i] = score
         
@@ -162,7 +166,9 @@ def runUntilConverge(it):
             dev = np.inf
         print(f"{dev:{di-1}.2f}%", end=" ")
 
-        print(f"{(end-start):{di}.2f}s")
+        print(f"{(end-start):{di-1}.2f}s", end=" ")
+
+        print(f"{moves:{di}.2f}")
 
         if not playMore(scores[:i+1]):
             break
