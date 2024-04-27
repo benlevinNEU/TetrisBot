@@ -4,6 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pandas as pd
 import networkx as nx
 
+from networkx.drawing.nx_agraph import graphviz_layout
+
 # Save the original stderr
 original_stderr = sys.stderr
 original_stdout = sys.stdout
@@ -75,44 +77,70 @@ def visualize_lineages(df, N=30, K=10):
     top_k_set = df.nlargest(K, 'rank')
     top_k_ids = set(top_k_set['id'])
     
-    # Function to recursively add descendants to the graph
-    def add_descendants(parent_id):
-        children = df[df['parentID'] == parent_id]
-        for _, child in children.iterrows():
-            child_id = child['id']
-            if child_id not in G:
-                G.add_node(child_id, rank=f"{child['rank']:.0f}", gen=child['gen'], color='green' if child_id in top_k_ids else 'skyblue')
-                G.add_edge(parent_id, child_id)
-                add_descendants(child_id)
+    # Function to recursively add parents to the graph
+    def add_parents(child_id):
+        parent_id = df[df['id'] == child_id]['parentID'].iloc[0]
+        if parent_id is not None and parent_id not in G:
+            parent = df[df['id'] == parent_id].iloc[0]
+            G.add_node(parent_id, rank=f"{parent['rank']:.0f}", gen=parent['gen'], color='green' if parent_id in top_k_ids else 'skyblue')
+            G.add_edge(parent_id, child_id)
+            add_parents(parent_id)
+        if parent_id is not None:
+            G.add_edge(parent_id, child_id)
     
     # Add the top models and their descendants
     for node_id in top_n_ids:
         G.add_node(node_id, rank=f"{df[df['id'] == node_id]['rank'].iloc[0]:.0f}", gen=df[df['id'] == node_id]['gen'].iloc[0], color='green' if node_id in top_k_ids else 'skyblue')
-        add_descendants(node_id)
+        add_parents(node_id)
 
     # Assign subset keys based on generations
     generations = sorted(set(df['gen']))  # Get unique generations
     subset_key = {gen: [node for node in G if G.nodes[node]['gen'] == gen] for gen in generations}
     
     # Calculate the hierarchical layout
-    pos = nx.multipartite_layout(G, subset_key=subset_key)
-    
-    '''# Get the nodes in the last generation
-    last_gen = max(generations)
-    last_layer_nodes = subset_key[f"gen_{last_gen}"]
-    # Group nodes in the last generation that share the same parent
-    parent_child_dict = nx.to_dict_of_lists(G)
-    shared_parent_groups = {}
-    for parent, children in parent_child_dict.items():
-        last_gen_children = [child for child in children if child in last_layer_nodes]
-        if last_gen_children:
-            shared_parent_groups[parent] = last_gen_children
-    '''
-    
+    #pos = nx.multipartite_layout(G, subset_key=subset_key)
+    pos = graphviz_layout(G, prog='dot', args='-Grankdir=LR')
+
+    # Place the child nodes with the highest generation number closer to the center of the graph
+    def adjust_verts(parent_id, y_shift):
+        children = list(G.successors(parent_id))
+        if children:
+            # Get list of (index, id, gen) for each child
+            c_gen = np.array([(i, child, int(df[df['id'] == child]['gen'].item())) for i, child in enumerate(children)])
+            ys = np.array([pos[child][1] + y_shift for child in children])
+            
+            # Determine the order of c_gen such that highest gen numbers are at the center of the list
+            sorted_indices = np.argsort(c_gen[:, 2].astype(int))
+            left_slice = sorted_indices[::2]
+            right_slice = sorted_indices[1::2][::-1] # Reverse to get descending order
+
+            reordered_ind = np.concatenate((left_slice,right_slice))
+            reordered_c_gen = c_gen[reordered_ind]
+
+            # Adjust the y position of the child nodes
+            for i, child in enumerate(reordered_c_gen):
+                id = child[1]
+                print(f'Parent Rank: {df[df['id'] == parent_id]['rank'].iloc[0]:.0f}, Child Rank: {df[df['id'] == id]['rank'].iloc[0]:.0f}')
+                old_y = pos[id][1]
+                pos[id] = (pos[id][0], ys[i])
+                adjust_verts(id, pos[id][1] - old_y)
+                
+    # Find all root nodes
+    root_nodes = [node for node in G.nodes() if G.in_degree(node) == 0]
+
+    # Adjust the vertical position of the child nodes for each root node
+    for root_node in root_nodes:
+        adjust_verts(root_node, 0)
+
+    # Alter the horizontal position of the nodes
+    for node_id, (_, y_offset) in pos.items():
+        gen = G.nodes[node_id]['gen']
+        pos[node_id] = (gen*20, y_offset)
+
     # Draw the graph
     nx.draw(G, pos, with_labels=True, labels=nx.get_node_attributes(G, 'rank'), 
-            node_size=600, node_color=[data['color'] for _, data in G.nodes(data=True)], 
-            font_size=9, arrowsize=12, arrowstyle='-|>', font_weight='bold')
+            node_size=500, node_color=[data['color'] for _, data in G.nodes(data=True)], 
+            font_size=8, arrowsize=10, arrowstyle='-|>', font_weight='bold')
     
     # Add generation labels at the bottom
     # Get the bounds of the window
@@ -126,10 +154,9 @@ def visualize_lineages(df, N=30, K=10):
         gen_nodes = subset_key[gen]
         gen_positions = [pos[node] for node in gen_nodes]
         x = np.mean([x for x, _ in gen_positions])
-        plt.text(x, bottom_y + 0.05, f'{gen}', 
+        plt.text(x, bottom_y + 0.01, f'{gen}', 
                  horizontalalignment='center', fontsize=12, fontweight='bold', color='red')
     
-
     # Display the plot
     plt.title('Model Lineages Visualization')
     plt.axis('off')  # Turn off the axis

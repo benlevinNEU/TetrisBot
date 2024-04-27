@@ -190,7 +190,7 @@ class Model():
 
         # In the event that no more points are scored
         if score - snapscore == 0:
-            return score, np.zeros([NUM_EVALS, self.fts]), np.zeros(NUM_EVALS)
+            return score, np.zeros([NUM_EVALS, self.fts]), np.zeros(NUM_EVALS), moves
 
         # Return the absolute value of the average cost per move and the average gradient
         w_cost_metrics = norm_c_grad/moves/(score - snapscore) 
@@ -514,8 +514,16 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
             futures = [executor.submit(
                 func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
-            sys.stdout.write(f"\r{prnt_lbl}: {0:.2f}% of {len(args[0])} - Elapsed / Est (s): {0:.0f} / Unknown             ") # Overwrites the line
+            out = f"\r{prnt_lbl}: {0:.2f}% of {len(args[0])} - Elapsed / Est (s): {0:.0f} / Unknown             " # Overwrites the line
+            sys.stdout.write(out)
             sys.stdout.flush()
+
+            progress_log = open(f"{CURRENT_DIR}/progress.log", "a")
+            progress_log.seek(0, os.SEEK_END)  # Seek to the end of the file
+            progress_log.seek(progress_log.tell() - len(out), os.SEEK_SET)  # Seek to the start of the last line
+            progress_log.truncate()  # Truncate the file from this point
+            progress_log.write(out)  # Write the new line
+            progress_log.close()
 
             # print(prnt_lbl)
             # Track progress and collect results
@@ -524,8 +532,15 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
                 progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                sys.stdout.write(f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             ") # Overwrites the line
+                out = f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             " # Overwrites the line
+                
+                sys.stdout.write(out)
                 sys.stdout.flush()
+
+                progress_log = open(f"{CURRENT_DIR}/progress.log", "a")
+                progress_log.write(out)
+                progress_log.close()
+                
                 ret_list.append(future.result())
 
     # Write elapsed time such that it isn't overritten by the generation number and score once leaving the pool task wrapper
@@ -561,6 +576,8 @@ def getParents(models_info, pop_size, n_parents, lin_prop_max, p_random):
             for key, lineage in lineage_dict.items():
                 if parent_id in lineage:
                     lineage.update(lineage_dict[child_id])
+        else:
+            raise ValueError(f"Parent ID {parent_id} not found in models for child ID {child_id}")
 
     # Select parents ensuring lineage proportions are maintained
     total_selected = 0
@@ -738,7 +755,12 @@ def main(stdscr):
 
         # Select top score
         top_score = raw_df.iloc[0]["exp_score"]
-        print(f"\rGeneration {generation}: Top Expected Score = {top_score:.1f}")
+        out = f"\rGeneration {generation}: Top Expected Score = {top_score:.1f}"
+        
+        print(out)
+        progress_log = open(f"{CURRENT_DIR}/progress.log", "a")
+        progress_log.write(out)
+        progress_log.close()
 
         # Unpack the results and create a numpy array with score in the first column and weights after it
         models_info = pd.concat([saved_models_info, raw_df])

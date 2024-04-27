@@ -99,9 +99,6 @@ def plot_model_performance(file, ax, lines):
         best_score[gen] = np.max(best_score_in_gen)
         average_score_of_topN[gen] = np.mean(all_scores[:topN])
 
-
-
-
     # Update the data for each plot line
     x = np.linspace(0,generations-1,generations)
     lines["best_rank"].set_data(x, best_score.ravel()[:-1])
