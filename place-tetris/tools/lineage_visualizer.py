@@ -24,8 +24,8 @@ try:
     sys.stderr = open(os.devnull, 'w')
     sys.stdout = open(os.devnull, 'w')
     import matplotlib.pyplot as plt
-    manager = plt.get_current_fig_manager()
-    manager.window.showMaximized()
+    #manager = plt.get_current_fig_manager()
+    #manager.window.showMaximized()
 
 finally:
     # Restore the original stderr

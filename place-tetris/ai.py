@@ -3,6 +3,9 @@ import pandas as pd
 import os, sys, time, cProfile, multiprocessing, platform, re
 from multiprocessing import Manager, Pool, Value
 import concurrent.futures
+from lineage_limiter import getParents
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import utils, importlib
 
 from get_latest_profiler_data import print_stats
@@ -61,7 +64,7 @@ TP = {
     'lin_prop_max': 0.2,
     "demo": False,
     "snap_prob": lambda mxh: 0.12 * mxh**8,
-    "use_snap_prob": 0.5,
+    "use_snap_prob": 0.3,
 }
 '''
 
@@ -72,14 +75,31 @@ MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 def mutate_model(args):
     model_df, _, gen = args # id is not used
     weights = model_df['weights'].reshape([NUM_EVALS, int(len(model_df['weights'])/NUM_EVALS)])
-    model = Model(weights=weights, sigmas=model_df['sigmas'], gen=model_df['gen'], parentID=model_df['parentID'], id=model_df['id'])
-    w_cm = model_df['w_cost_metrics'].reshape([NUM_EVALS, model.fts])
-    return model.mutate(gen, w_cm, model_df['s_cost_metrics'], model_df['max_children'])
+
+    try:
+        model = Model(weights=weights, sigmas=model_df['sigmas'], gen=model_df['gen'], parentID=model_df['parentID'], id=model_df['id'])
+        w_cm = model_df['w_cost_metrics'].reshape([NUM_EVALS, model.fts])
+        ret = model.mutate(gen, w_cm, model_df['s_cost_metrics'], model_df['max_children'])
+
+    except Exception as e:
+        progress_log = open(f"{CURRENT_DIR}/error.log", "a")
+        progress_log.write(e)  # Write the new line
+        progress_log.close()
+
+    return ret
 
 # Method wrapperop  _ste[]
 def evaluate_model(args):
     model_df, _, _, _ = args
-    return model_df['model'].evaluate(args[1:])
+    try:
+        ret = model_df['model'].evaluate(args[1:])
+
+    except Exception as e:
+        progress_log = open(f"{CURRENT_DIR}/error.log", "a")
+        progress_log.write(e)  # Write the new line
+        progress_log.close()
+
+    return ret
 
 def profiler_wrapper(args):
     """
@@ -142,7 +162,7 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
 
             # Prints the progress percentage with appropriate task label
             e_time = time.time() - start_time
-            sys.stdout.write(f"{prnt_lbl}: {progress:.2f}%  Elapsed Time / Estimate (s): {e_time:.0f}/{e_time/progress *100:.0f}             \r") # Overwrites the line
+            sys.stdout.write(f"\r{prnt_lbl}: {progress:.2f}%  Elapsed Time / Estimate (s): {e_time:.0f}/{e_time/progress *100:.0f}    ") # Overwrites the line
             sys.stdout.flush()
 
     else:
@@ -152,14 +172,14 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
             futures = [executor.submit(
                 func, (model, id, *args[1:])) for id, model in args[0].iterrows()]
 
-            out = f"\r{prnt_lbl}: {0:.2f}% of {len(args[0])} - Elapsed / Est (s): {0:.0f} / Unknown             " # Overwrites the line
+            out = f"\r{prnt_lbl}: {0:.2f}% of {len(args[0])} - Elapsed / Est (s): {0:.0f} / Unknown  " # Overwrites the line
             sys.stdout.write(out)
             sys.stdout.flush()
 
             progress_log = open(f"{CURRENT_DIR}/progress.log", "a")
-            progress_log.seek(0, os.SEEK_END)  # Seek to the end of the file
-            progress_log.seek(progress_log.tell() - len(out), os.SEEK_SET)  # Seek to the start of the last line
-            progress_log.truncate()  # Truncate the file from this point
+            #progress_log.seek(0, os.SEEK_END)  # Seek to the end of the file
+            #progress_log.seek(progress_log.tell() - len(out), os.SEEK_SET)  # Seek to the start of the last line
+            #progress_log.truncate()  # Truncate the file from this point
             progress_log.write(out)  # Write the new line
             progress_log.close()
 
@@ -170,7 +190,7 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
                 progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                out = f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}             " # Overwrites the line
+                out = f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}    " # Overwrites the line
                 
                 sys.stdout.write(out)
                 sys.stdout.flush()
@@ -187,95 +207,6 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
     sys.stdout.flush()
 
     return ret_list
-
-def getParents(models_info, pop_size, n_parents, lin_prop_max, p_random):
-    # Sort models by descending rank (assuming rank is higher for better models)
-    models = models_info.sort_values(by="rank", ascending=False)
-
-    child_set = pop_size * (1 - p_random)
-    
-    # Initialize lineage tracking and parent selection
-    lineage_dict = {}
-    lineage_counts = {}
-    parents = pd.DataFrame(columns=models_info.columns)
-    parents['max_children'] = []
-
-    # Assign each model to its own lineage initially
-    for index, model in models.iterrows():
-        lineage_dict[model['id']] = set([model['id']])
-        lineage_counts[model['id']] = 0
-
-    # Merge lineages based on parent-child relationships
-    for index, model in models.iterrows():
-        child_id = model['id']
-        parent_id = model['parentID']
-        if parent_id in models['id'].values:
-            lineage_dict[child_id].update(lineage_dict[parent_id])
-            for key, lineage in lineage_dict.items():
-                if parent_id in lineage:
-                    lineage.update(lineage_dict[child_id])
-        else:
-            raise ValueError(f"Parent ID {parent_id} not found in models for child ID {child_id}")
-
-    # Select parents ensuring lineage proportions are maintained
-    total_selected = 0
-    for index, model in models.iterrows():
-        if n_parents >= n_parents and total_selected >= child_set:
-            break
-        
-        current_id = model['id']
-        # Identify the lineage of the current model
-        current_lineage = lineage_dict[current_id]
-
-        # Calculate the total offspring allowed for the lineage
-        lineage_limit = int(np.ceil(lin_prop_max * child_set))
-
-        # Sum the current offspring count for all members of this lineage
-        current_lineage_offspring = sum([lineage_counts[id] for id in current_lineage])
-
-        # Determine available slots for this lineage
-        available_slots = min(lineage_limit - current_lineage_offspring, int(np.ceil(child_set / n_parents)))
-
-        if available_slots == 0:
-            # Reduce the 'max_children' value for all models in the current lineage to accomadate the new model
-            '''for _, parent in parents.iterrows():
-                if parent['id'] in current_lineage:
-                    parent['max_children'] = int(parent['max_children'] * len(parents) / (len(parents) + 1))'''
-
-            lineage_parent_indices = parents[parents['id'].isin(current_lineage)].index
-            parents.loc[lineage_parent_indices, 'max_children'] = np.ceil((parents.loc[lineage_parent_indices, 'max_children'] * len(parents) / (len(parents) + 1))).astype(int)
-
-            # Sum the current offspring count for all members of this lineage
-            current_lineage_offspring = sum([lineage_counts[id] for id in current_lineage])
-            if current_lineage_offspring >= lineage_limit:
-                child_set += 1
-
-            # Enable an extra child to be selected for this lineage if lineage is full
-            lineage_limit += 1
-
-            # Determine available slots for this lineage
-            available_slots = lineage_limit - current_lineage_offspring
-
-            # Flexible number of parents to accomadate all best preforming parents by reducing number of kids per parent
-            n_parents += 1
-        
-        if available_slots > 0:
-            selected_slots = int(min(available_slots, child_set - total_selected))
-            # Append to parents DataFrame
-            new_model = model.copy()
-            new_model['max_children'] = selected_slots
-            new_model_df = pd.DataFrame([new_model])
-            if parents.empty:
-                parents = new_model_df
-            else:
-                parents = pd.concat([parents, new_model_df])
-            
-            # Update lineage counts
-            for id in current_lineage:
-                lineage_counts[id] += selected_slots
-            total_selected += selected_slots
-
-    return parents
 
 def main(stdscr):
 
