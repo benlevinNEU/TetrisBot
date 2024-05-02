@@ -124,7 +124,7 @@ class Model():
             if len(options) > 0:
                 break
 
-            return game, options, snapscore, snapshot
+        return game, options, snapscore, snapshot
 
     def play(self, gp, pos, tp=TP, ft=FT, use_snap=True, it=0):
 

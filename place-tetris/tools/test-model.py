@@ -2,7 +2,7 @@ import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from place_tetris import TetrisApp, COLS, ROWS
-from ai import Model, playMore, expectedScore
+from model import Model, playMore, expectedScore
 import numpy as np
 from evals import *
 import transform_encode as te
@@ -28,7 +28,7 @@ tp = {
     "profile": False,
     "prune_ratio": 0.2,
     "cutoff": 1000,
-    "demo": False,
+    "demo": True,
     "workers": 4,
     "snap_prob": lambda mxh: 0.12 * mxh**8,
     "use_snap_prob": 0.5,
@@ -99,10 +99,10 @@ print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
 game_params = {
-    "gui": False,  # Set to True to visualize the game
+    "gui": True,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 10,
-    "rows": 14,
+    "rows": 20,
     "window_pos": (0, 0),
     "sleep": 0.1
 }
@@ -110,7 +110,7 @@ game_params = {
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 model.evals = Evals(game_params)
 
-PLAY_ONCE = False
+PLAY_ONCE = True
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:

@@ -11,7 +11,7 @@ import utils, importlib
 from get_latest_profiler_data import print_stats
 from evals import NUM_EVALS
 import transform_encode as te
-from model import Model, FT, MAX_WORKERS, CURRENT_DIR
+from model import Model, playMore, FT, MAX_WORKERS, CURRENT_DIR
 
 pltfm = None
 if platform.system() == 'Linux' and 'microsoft-standard-WSL2' in platform.release():
