@@ -71,7 +71,7 @@ TP = {
 PROF_DIR = os.path.join(CURRENT_DIR, "profiler/")
 MODELS_DIR = os.path.join(CURRENT_DIR, "models/")
 
-# Method wrapper
+# Method wrapper for mutation
 def mutate_model(args):
     model_df, _, gen = args # id is not used
     weights = model_df['weights'].reshape([NUM_EVALS, int(len(model_df['weights'])/NUM_EVALS)])
@@ -88,7 +88,7 @@ def mutate_model(args):
 
     return ret
 
-# Method wrapperop  _ste[]
+# Method wrapper for evaluation
 def evaluate_model(args):
     model_df, _, _, _ = args
     try:

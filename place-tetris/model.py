@@ -76,8 +76,7 @@ class Model():
         
         self.snapshots = []
 
-    def play(self, gp, pos, tp=TP, ft=FT, use_snap=True, it=0):
-
+    def init_game(self, gp, tp, pos, use_snap):
         # Loop to initialize game until a valid starting state is found if starting from snap
         while True:
             if np.random.rand() < tp['use_snap_prob'] and len(self.snapshots) > 0 and use_snap:
@@ -93,18 +92,24 @@ class Model():
                 choice = np.random.choice(np.arange(len(it_snaps)))
                 snapshot = it_snaps[choice][1]
 
-                # Remove snapshot from list
-                self.snapshots.pop(choice)
+                if snapshot is not None:
+                    # Remove snapshot from list
+                    self.snapshots.pop(choice)
 
-                snapscore = snapshot[1]
-                game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos, snap=snapshot)
+                    snapscore = snapshot[1]
+                    game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos, snap=snapshot)
 
-                snap_log = open(f"{CURRENT_DIR}/snap.log", "a")
-                snap_log.write(f"Model ID: {self.id}\n")
-                snap_log.write(f"Snapshot Used\n")
-                snap_log.write(f"Score: {snapshot[1]}\n")
-                snap_log.write(f"{trimBoard(snapshot[0])}\n")
-                snap_log.close()
+                    snap_log = open(f"{CURRENT_DIR}/snap.log", "a")
+                    snap_log.write(f"Model ID: {self.id}\n")
+                    snap_log.write(f"Snapshot Used\n")
+                    snap_log.write(f"Score: {snapshot[1]}\n")
+                    snap_log.write(f"{trimBoard(snapshot[0])}\n")
+                    snap_log.close()
+
+                else: # Occurs if selected playthrough has no snapshot
+                    snapscore = 0
+                    snapshot = None
+                    game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
 
             else:
                 snapscore = 0
@@ -118,6 +123,12 @@ class Model():
 
             if len(options) > 0:
                 break
+
+            return game, options, snapscore, snapshot
+
+    def play(self, gp, pos, tp=TP, ft=FT, use_snap=True, it=0):
+
+        game, options, snapscore, snapshot = self.init_game(gp, tp, pos, use_snap)
 
         gameover = False
         score = 0
@@ -171,6 +182,9 @@ class Model():
                 snap_log.write(f"Score: {snapshot[1]}\n")
                 snap_log.write(f"{trimBoard(snapshot[0])}\n")
                 snap_log.close()
+
+        if self.snapshots[-1][0] != it:
+            self.snapshots.append((it, None))
 
         # In the event that no more points are scored
         if score - snapscore == 0:
