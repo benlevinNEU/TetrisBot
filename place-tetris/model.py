@@ -232,8 +232,13 @@ class Model():
         try:
             X = ft(self, vals)
         except:
+            progress_log = open(f"{CURRENT_DIR}/error.log", "a")
+            progress_log.write(str(vals))  # Write the new line
+            progress_log.close()
+
             vals[vals>1] = 1
             vals[vals<0] = 0
+            X = ft(self, vals)
         
         #if np.isnan(X).any(): # Misfires regularly
         #    raise ValueError("X contains NaN values")

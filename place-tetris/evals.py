@@ -124,7 +124,7 @@ class Evals():
         self.MX_HOLES = GP["rows"] * GP["cols"] / 2
         self.MX_OVERHANGS = GP["rows"] * GP["cols"] / 2
 
-        self.MAX_POINTS = 1200 + GP['rows'] - 4
+        self.MAX_POINTS = 2 * (1200 + GP['rows'] - 4)
 
         # Fear of Death Warning
         self.FoD_W = 4
