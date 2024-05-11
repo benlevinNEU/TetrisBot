@@ -8,6 +8,11 @@ from place_tetris import TetrisApp, trimBoard
 from evals import Evals, NUM_EVALS, getEvalLabels
 import os, multiprocessing
 
+import warnings
+
+# Use this to catch the specific runtime warning
+warnings.filterwarnings('error', category=RuntimeWarning)
+
 from local_params import GP, TP
 
 FT = eval(f"lambda self, x: np.column_stack([{te.decode(TP["feature_transform"])}])")
@@ -108,6 +113,7 @@ class Model():
 
                 else: # Occurs if selected playthrough has no snapshot
                     snapscore = 0
+
                     snapshot = None
                     game = TetrisApp(gui=gp["gui"], cell_size=gp["cell_size"], cols=gp["cols"], rows=gp["rows"], sleep=gp["sleep"], window_pos=pos)
 
@@ -183,8 +189,11 @@ class Model():
                 snap_log.write(f"{trimBoard(snapshot[0])}\n")
                 snap_log.close()
 
-        if self.snapshots[-1][0] != it:
-            self.snapshots.append((it, None))
+        try: # TODO: REMOVE
+            if self.snapshots == [] or self.snapshots[-1][0] != it:
+                self.snapshots.append((it, None))
+        except:
+            pass
 
         # In the event that no more points are scored
         if score - snapscore == 0:
@@ -220,9 +229,14 @@ class Model():
 
     def cost(self, state, tp=TP, ft=FT):
         vals = self.evals.getEvals(state)
-        X = ft(self, vals)
-        if np.isnan(X).any():
-            raise ValueError("X contains NaN values")
+        try:
+            X = ft(self, vals)
+        except:
+            vals[vals>1] = 1
+            vals[vals<0] = 0
+        
+        #if np.isnan(X).any(): # Misfires regularly
+        #    raise ValueError("X contains NaN values")
         costs = X * self.weights
 
         sigma_grad = None

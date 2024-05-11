@@ -1,4 +1,5 @@
 import numpy as np
+from itertools import product
 from local_params import GP
 
 board = np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
@@ -78,6 +79,23 @@ def dfs(matrix, x, y, visited, value, fill=0):
 
     return matrix
 
+def getPolyMax(rows, cols):
+    min_coef = np.inf
+    max_coef = -np.inf
+    
+    for comb in product(range(2), repeat=cols):
+        comb = np.array(comb)
+        comb[comb == 1] = rows
+        poly = np.polyfit(np.arange(cols), comb, 2)[0]
+        if poly < min_coef:
+            min_coef = poly
+            #print(min_coef)
+        if poly > max_coef:
+            max_coef = poly
+            #print(max_coef)
+
+    return min_coef, max_coef
+    
 class Evals():
 
     def __init__(self, GP):
@@ -88,13 +106,18 @@ class Evals():
         self.MX_DTE = GP['cols']/2
         self.MX_BMPS = ((GP['cols']-1)*GP['rows'])
 
-        self.HS = np.zeros(GP['cols'])
+        '''self.HS = np.zeros(GP['cols'])
         self.HS[[0,-1]] = self.MXH
         self.MX_POLY_COEF = np.polyfit(np.arange(GP['cols']), self.HS, 2)[0]
 
         self.LS = np.zeros(GP['cols'])
         self.LS[int(GP['cols']/4):int(np.ceil(GP['cols']*3/4))] = self.MXH
-        self.MN_POLY_COEF = np.polyfit(np.arange(GP['cols']), self.LS, 2)[0]
+        self.MN_POLY_COEF = np.polyfit(np.arange(GP['cols']), self.LS, 2)[0]'''
+
+        '''self.MX_POLY_COEF = self.MXH / (3 ** 2)
+        self.MN_POLY_COEF = -self.MXH / (3 ** 2)'''
+
+        self.MN_POLY_COEF, self.MX_POLY_COEF = getPolyMax(GP['rows'], GP['cols'])
 
         self.POLY_RANGE = self.MX_POLY_COEF - self.MN_POLY_COEF
 
@@ -126,21 +149,18 @@ class Evals():
         max_height = np.max(hs)
         avg_height = np.mean(hs)
 
-        mx_h4e = np.min([np.min(hs), self.GP['cols'] - np.max(hs)])
-        mn_h4e = np.min([np.max(hs), self.GP['cols'] - np.min(hs)])
-
         coef = np.polyfit(np.arange(self.GP['cols']), hs, 2)[0]
 
         n_bmps = bmps / self.MX_BMPS
         n_max_height = max_height / self.MXH
         n_avg_height = avg_height / self.MXH
         n_min_height = min_height / self.MXH
-        n_mx_h4e = mx_h4e / self.MX_DTE
-        n_mn_h4e = mn_h4e / self.MX_DTE
         n_coef = (coef - self.MN_POLY_COEF)/self.POLY_RANGE # Scaling to between 0 and 1 # TODO: Convert old training data
 
         if n_coef < 0:
             n_coef = 0
+        if n_coef > 1:
+            n_coef = 1
 
         fod = min(int(self.MXH - max_height), self.FoD_W) / self.FoD_W
 
@@ -204,7 +224,7 @@ class Evals():
 
         points = cl_pnts + drops
 
-        max_points = 1200 + self.GP['rows'] - 4
+        max_points = 2*(1200 + self.GP['rows']) - 4
 
         return points / max_points
 
@@ -236,6 +256,10 @@ def getEvalLabels():
 
 # Tests
 if __name__ == "__main__":
+
+    min_coef, max_coef = getPolyMax(14, 10)
+    exit()
+
     evals = Evals(GP)
     print(evals.getEvals((board, [])))
 

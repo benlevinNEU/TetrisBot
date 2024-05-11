@@ -83,7 +83,7 @@ def mutate_model(args):
 
     except Exception as e:
         progress_log = open(f"{CURRENT_DIR}/error.log", "a")
-        progress_log.write(e)  # Write the new line
+        progress_log.write(str(e))  # Write the new line
         progress_log.close()
 
     return ret
@@ -96,7 +96,7 @@ def evaluate_model(args):
 
     except Exception as e:
         progress_log = open(f"{CURRENT_DIR}/error.log", "a")
-        progress_log.write(e)  # Write the new line
+        progress_log.write(str(e))  # Write the new line
         progress_log.close()
 
     return ret
@@ -190,7 +190,7 @@ def pool_task_wrapper(task_func, task_args, profile, prnt_lbl):
                 progress = (count / len(args[0])) * 100
                 # Prints the progress percentage with appropriate task label
                 e_time = time.time() - start_time
-                out = f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}    " # Overwrites the line
+                out = f"\r{prnt_lbl}: {progress:.2f}% of {len(args[0])} - Elapsed / Est (s): {e_time:.0f}/{e_time/progress *100:.0f}      " # Overwrites the line
                 
                 sys.stdout.write(out)
                 sys.stdout.flush()
