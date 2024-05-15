@@ -23,15 +23,15 @@ game_params = {
 }
 
 tp = {
-    "feature_transform": "x,x**3,x**(1/3)",
+    "feature_transform": "x,x**3,x**(1/3),(1-x)**3,(1-x)**(1/3)",
     "max_plays": 30,
     "profile": False,
     "prune_ratio": 0.2,
     "cutoff": 1000,
     "demo": True,
     "workers": 4,
-    "snap_prob": lambda mxh: 0.12 * mxh**8,
-    "use_snap_prob": 0.5,
+    "snap_prob": lambda _: 0,
+    "use_snap_prob": 0,
 }
 
 MAX_WORKERS = tp["workers"] if tp["workers"] > 0 else multiprocessing.cpu_count()
@@ -99,7 +99,7 @@ print('\n', end='')
 
 # Uncomment if you want to test a model trained on a different board size
 game_params = {
-    "gui": True,  # Set to True to visualize the game
+    "gui": False,  # Set to True to visualize the game
     "cell_size": 30,
     "cols": 10,
     "rows": 20,
@@ -110,7 +110,7 @@ game_params = {
 model = Model(tp, weights.reshape(NUM_EVALS, int(len(weights)/NUM_EVALS)), sigmas, 1)
 model.evals = Evals(game_params)
 
-PLAY_ONCE = True
+PLAY_ONCE = False
 
 ft = eval(f"lambda self, x: np.column_stack([{te.decode(tp["feature_transform"])}])")
 if PLAY_ONCE:
@@ -168,7 +168,7 @@ def runUntilConverge(it):
 
         print(f"{(end-start):{di-1}.2f}s", end=" ")
 
-        print(f"{moves:{di}.2f}")
+        print(f"{moves:{di}.0f}")
 
         if not playMore(scores[:i+1]):
             break
@@ -195,7 +195,7 @@ def runUntilConverge(it):
 
 import concurrent.futures
 with concurrent.futures.ThreadPoolExecutor() as executor:
-    print(f"{'Itter':^{di}} {'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}} {'Time':^{di}}")
+    print(f"{'Itter':^{di}} {'Score':^{di}} {'Mean':^{di}} {'Exp':^{di}} {'Aic':^{di}} {'Dev':^{di}} {'Time':^{di}} {'Moves':^{di}}")
     
     futures = [executor.submit(runUntilConverge, (i, )) for i in range(iters)]
     for count, future in enumerate(concurrent.futures.as_completed(futures), 1):

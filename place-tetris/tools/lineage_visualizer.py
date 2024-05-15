@@ -32,36 +32,6 @@ finally:
     sys.stderr = original_stderr
     sys.stdout = original_stdout
 
-# Function to recursively add descendants to the graph
-'''def add_descendants(G, df, parent_id, y_offset_dict, pos, top_k_ids, depth=0):
-    children = df[df['parentID'] == parent_id]
-    
-    # We use a depth parameter to keep track of the horizontal positioning.
-    for i, child in children.iterrows():
-        child_id = child['id']
-        if child_id not in G:
-            # The generation of the child is based on its 'gen' value in the DataFrame.
-            child_gen = child['gen']
-            
-            # Check the next available vertical position for this generation.
-            y_offset = y_offset_dict.get(child_gen, depth)
-            
-            # Update y_offset_dict for the next sibling or cousin.
-            y_offset_dict[child_gen] = y_offset + 1
-            
-            # Set position for child.
-            pos[child_id] = (child_gen, y_offset)
-            
-            # Color the node if it's in the top K models.
-            color = 'green' if child_id in top_k_ids else 'skyblue'
-            
-            # Add node and edge to the graph.
-            G.add_node(child_id, rank=f"{child['rank']:.0f}", gen=child_gen, color=color)
-            G.add_edge(parent_id, child_id)
-            
-            # Recurse to add this child's descendants.
-            add_descendants(G, df, child_id, y_offset_dict, pos, top_k_ids, depth + 1)'''
-
 def visualize_lineages(df, N=30, K=10):
     # Ensure K is not greater than N
     K = min(K, N)
@@ -120,7 +90,7 @@ def visualize_lineages(df, N=30, K=10):
             # Adjust the y position of the child nodes
             for i, child in enumerate(reordered_c_gen):
                 id = child[1]
-                print(f'Parent Rank: {df[df['id'] == parent_id]['rank'].iloc[0]:.0f}, Child Rank: {df[df['id'] == id]['rank'].iloc[0]:.0f}')
+                #print(f'Parent Rank: {df[df['id'] == parent_id]['rank'].iloc[0]:.0f}, Child Rank: {df[df['id'] == id]['rank'].iloc[0]:.0f}')
                 old_y = pos[id][1]
                 pos[id] = (pos[id][0], ys[i])
                 adjust_verts(id, pos[id][1] - old_y)
